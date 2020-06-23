@@ -78,12 +78,18 @@ FILE___init__(PyObject *self, PyObject *args, PyObject *kwargs)
     FILE_PROLOG(self, file);
     FILE *file = fopen(name, mode);
     FILE_EPILOG(self, file);
+    int readable = 0;
+    int writable = 0;
     if (file) {
       Py_BEGIN_ALLOW_THREADS
-        __fsetlocking(locking ? FSETLOCKING_INTERNAL : FSETLOCKING_BYCALLER);
+        __fsetlocking(file, locking ? FSETLOCKING_INTERNAL : FSETLOCKING_BYCALLER);
+      readable = __freadable(file);
+      writable = __fwritable(file);
       Py_END_ALLOW_THREADS
     }
     PyObject_SetAttrString(self, "file", PyLong_FromLong((long)file));
+    PyObject_SetAttrString(self, "readable", PyBool_FromLong(readable));
+    PyObject_SetAttrString(self, "writable", PyBool_FromLong(writable));
     return NULL;
 
 exit:
@@ -253,14 +259,56 @@ FILE_fldata(PyObject *self) // METH_NOARGS
   return PyLong_FromLong(result);
 }
 
-/* int      __freadable (FILE *); */
-/* int      __fwritable (FILE *); */
+PyObject *
+FILE_flocate(PyObject *self, PyObject *args) // METH_VARARGS
+{
+  PyBuffer *buffer = NULL;
+  int options = 0;
+  FILE_DECLARES;
+  PyObject *file_obj = PyObject_GetAttrString(self, "file");
+  if (file_obj == PyNone)
+    Py_RETURN_NONE;
+  if (!PyArg_ParseTuple(args, "y*i:fread", &buffer, options))
+    return NULL;
+  FILE *file = (FILE *)PyLong_AsLong(file_obj);
+  FILE_PROLOG(self, file);
+  int result = flocate(file, buffer->buf, buffer->len, options);
+  FILE_EPILOG(self, file);
+  return PyLong_FromLong(result);
+}
 
-/* int    flocate (FILE *, const void *, size_t, int); */
-/* int    fdelrec (FILE *); */
-/* size_t fupdate (const void *, size_t, FILE *); */
-/* int    clrmemf (int); */
-/* int    fldata (FILE *, char *, fldata_t *); */
+PyObject *
+FILE_fdelrec(PyObject *self)  // METH_NOARGS
+{
+  FILE_DECLARES;
+  PyObject *file_obj = PyObject_GetAttrString(self, "file");
+  if (file_obj == PyNone)
+    Py_RETURN_NONE;
+  if (!PyArg_ParseTuple(args, "y*i:fread", &buffer, options))
+    return NULL;
+  FILE *file = (FILE *)PyLong_AsLong(file_obj);
+  FILE_PROLOG(self, file);
+  int result = fdelrec(file);
+  FILE_EPILOG(self, file);
+  return PyLong_FromLong(result);
+}
+
+PyObject *
+FILE_fupdate(PyObject *self, PyObject *args) // METH_VARARGS
+{
+  PyBuffer *buffer = NULL;
+  FILE_DECLARES;
+  PyObject *file_obj = PyObject_GetAttrString(self, "file");
+  if (file_obj == PyNone)
+    Py_RETURN_NONE;
+  if (!PyArg_ParseTuple(args, "y*:fread", &buffer))
+    return NULL;
+  FILE *file = (FILE *)PyLong_AsLong(file_obj);
+  FILE_PROLOG(self, file);
+  int result = fupdate(buffer->buf, buffer->len, file);
+  FILE_EPILOG(self, file);
+  return PyLong_FromLong(result);
+}
 
 static PyObject *
 path_error(path_t *path)
@@ -483,25 +531,31 @@ _zos_system_call(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+static char *doc = "";
 
 static PyMethodDef _zos_methods[] = {
   {"FILE___init__", FILE___init__, METH_FASTCALL | METH_KEYWORDS, doc},
-  {"FILE_fclose", FILE_fclose, METH_NOARGS, doc};
-  {"FILE_fileno", FILE_fileno, METH_NOARGS, doc};
-  {"FILE_fflush", FILE_fflush, METH_NOARGS, doc};
-  {"FILE_fread", FILE_fread,  METH_VARARGS, doc};
-  {"FILE_fwrite", FILE_fwrite, METH_VARARGS, doc};
-  {"FILE_rewind", FILE_rewind, METH_NOARGS, doc};
-  {"FILE_fgetpos", FILE_fgetpos, METH_NOARGS, doc};
-  {"FILE_fsetpos", FILE_fsetpos, METH_VARARGS, doc};
-  {"FILE_fldata", FILE_fldata, METH_NOARGS, doc};
+  {"FILE_fclose", FILE_fclose, METH_NOARGS, doc},
+  {"FILE_fileno", FILE_fileno, METH_NOARGS, doc},
+  {"FILE_fflush", FILE_fflush, METH_NOARGS, doc},
+  {"FILE_fread", FILE_fread,  METH_VARARGS, doc},
+  {"FILE_fwrite", FILE_fwrite, METH_VARARGS, doc},
+  {"FILE_rewind", FILE_rewind, METH_NOARGS, doc},
+  {"FILE_fgetpos", FILE_fgetpos, METH_NOARGS, doc},
+  {"FILE_fsetpos", FILE_fsetpos, METH_VARARGS, doc},
+  {"FILE_fldata", FILE_fldata, METH_NOARGS, doc},
+  {"FILE_flocate", FILE_flocate, METH_VARARGS, doc},
+  {"FILE_fdelrec", FILE_fdelrec, METH_NOARGS, doc},
+  {"FILE_fupdate", FILE_fupdate, METH_VARARGS, doc},
   {"stat_internal",   zos_stat_internal,  METH_FASTCALL|METH_KEYWORDS, zos_stat_internal__doc__},
   {"chattr_internal", zos_chattr_internal,METH_VARARGS, zos_chattr_internal__doc__},
   {"system_call", os_zos_system_call, METH_VARARGS, zos_system_call__doc__},
   {"bytearray_set_address_size", (PyCFunction)bytearray_set_address_size, METH_O, bytearray_set_addresss_size__doc__},
   {"bytearray_buffer_address", (PyCFunction)bytearray_buffer_address, METH_NOARGS, bytearray_buffer_address__doc__},
   {NULL,              NULL}            /* Sentinel */
-}
+};
+
+static char *_zos__doc__="";
 
 static struct PyModuleDef _zosmodule = {
     PyModuleDef_HEAD_INIT,
@@ -526,6 +580,15 @@ INITFUNC(void)
     if (m == NULL)
         return NULL;
 
+#ifdef __RBA_EQ
+    if (PyModule_AddIntMacro(m, __RBA_EQ)) return NULL;
+    if (PyModule_AddIntMacro(m, __KEY_FIRST)) return NULL;
+    if (PyModule_AddIntMacro(m, __KEY_LAST)) return NULL;
+    if (PyModule_AddIntMacro(m, __KEY_EQ)) return NULL;
+    if (PyModule_AddIntMacro(m, __KEY_EQ_BWD)) return NULL;
+    if (PyModule_AddIntMacro(m, __KEY_GE)) return NULL;
+    if (PyModule_AddIntMacro(m, __RBA_EQ_BWD)) return NULL;
+#endif
 #ifdef F_SETTAG
     if (PyModule_AddIntMacro(m, F_SETTAG)) return NULL;
     if (PyModule_AddIntMacro(m, FT_UNTAGGED)) return NULL;
