@@ -1,313 +1,260 @@
+/*
+e=$HOME/miniconda
+o='-DNDEBUG -O -qdll -qexportall -qascii -q64 -qnocse -qgonum -qasm -qbitfield=signed -qtarget=zosv2r2 -qarch=10 -qtune=12 -O3 -qstrict -qfloat=ieee:nomaf -qlanglvl=extc1x  -D__MV17195__ -D_XOPEN_SOURCE=600'
+xlc_echocmd $o -I$e/include/python3.7m -c -o _zos.o _zos.c
+ */
+
+#ifdef __MVS__
+#define _OPEN_SYS_FILE_EXT 1
+#endif
+
 #define PY_SSIZE_T_CLEAN
 #include "Python.h"
-#include <stdio.h>
 #include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/modes.h>
 
-#define FILE_DECLARES \
-  int errno_; \
-  int errno2_; \
-  int error_; \
-  int eof; \
-  char amrc_[sizeof(__amrc_type)]; \
-  char amrc2_[sizeof(__amrc2_type)];
+typedef struct {
+    const char *function_name;
+    const char *argument_name;
+    int nullable;
+    int allow_fd;
+    const wchar_t *wide;
+    const char *narrow;
+    int fd;
+    Py_ssize_t length;
+    PyObject *object;
+    PyObject *cleanup;
+} path_t;
 
-#define FILE_PROLOG(self, file) \
-  Py_BEGIN_ALLOW_THREADS \
-  if (file) \
-    clearerr(file); \
-  errno = 0;
+#define PATH_T_INITIALIZE(function_name, argument_name, nullable, allow_fd) \
+    {function_name, argument_name, nullable, allow_fd, NULL, NULL, -1, 0, NULL, NULL}
 
-#define FILE_EPILOG(self, file) \
-  errno_ = errno; \
-  errno2_ = __errno2; \
-  memcpy(amrc_, __amrc, sizeof(__amrc_type)); \
-  memcpy(amrc2_, __amrc2, sizeof(__amrc2_type)); \
-  if (file) { \
-    error_ = ferror(file); \
-    eof_ = feof(file); \
-  } \
-  Py_END_ALLOW_THREADS \
-  set_file_error(self, error_, eof_, errno_, errno2_, amrc_, amrc2_)
-
-int set_byte_array(PyObject *self, char *name, char *value, int length)
+static void
+path_cleanup(path_t *path)
 {
-  PyObject *array = PyObject_GetAttrString(self, name);
-  memcpy(PyByteArray_AS_STRING(array), value, length);
-  return 0;
+    Py_CLEAR(path->object);
+    Py_CLEAR(path->cleanup);
 }
 
-int set_file_error(PyObject *self, int error_, int eof_, int errno_, int erron2_, char *amrc_, char *amrc2_)
+static int
+path_converter(PyObject *o, void *p)
 {
-  PyObject_SetAttrString(self, "error", PyBool_FromLong((long)error));
-  PyObject_SetAttrString(self, "eof", PyBool_FromLong((long)eof));
-  PyObject_SetAttrString(self, "errno", PyLong_FromLong((long)errno_));
-  PyObject_SetAttrString(self, "errno2", PyLong_FromLong((long)errno2_));
-  set_byte_array(self, "amrc", amrc_, sizeof(__amrc_type));
-  set_byte_array(self, "amrc2", amrc2_, sizeof(__amrc2_type));
-  return -1;
-}
+    path_t *path = (path_t *)p;
+    PyObject *bytes = NULL;
+    Py_ssize_t length = 0;
+    int is_index, is_buffer, is_bytes, is_unicode;
+    const char *narrow;
+#ifdef MS_WINDOWS
+    PyObject *wo = NULL;
+    const wchar_t *wide;
+#endif
 
-static PyObject *
-FILE___init__(PyObject *self, PyObject *args, PyObject *kwargs)
-{
-    int return_value = -1;
-    static const char * const _keywords[] = {"file", "mode", "locking", NULL};
-    static _PyArg_Parser _parser = {"O|Op:FILE", _keywords, 0};
-    PyObject *name_obj;
-    const char *name;
-    PyObject *mode_obj = Py_None;
-    const char *mode;
-    int locking = 0;
-    FILE_DECLARES;
-    
-    if (!_PyArg_ParseTupleAndKeywordsFast(args, kwargs, &_parser,
-                                          &name_obj, &mode_obj, &locking)) {
-        goto exit;
+#define FORMAT_EXCEPTION(exc, fmt) \
+    PyErr_Format(exc, "%s%s" fmt, \
+        path->function_name ? path->function_name : "", \
+        path->function_name ? ": "                : "", \
+        path->argument_name ? path->argument_name : "path")
+
+    /* Py_CLEANUP_SUPPORTED support */
+    if (o == NULL) {
+        path_cleanup(path);
+        return 1;
     }
-    PyObject_SetAttrString(self, "name", name_obj);
-    name = PyUnicode_AsUTF8(name_obj);
-    if (PyUnicode_Check(mode_obj)) {
-      mode = PyUnicode_AsUTF8(mode_obj);
-    } else {
-      mode = "r";
-      mode_obj = PyUnicode_FromString(mode);
+
+    /* Ensure it's always safe to call path_cleanup(). */
+    path->object = path->cleanup = NULL;
+    /* path->object owns a reference to the original object */
+    Py_INCREF(o);
+
+    if ((o == Py_None) && path->nullable) {
+        path->wide = NULL;
+#ifdef MS_WINDOWS
+        path->narrow = FALSE;
+#else
+        path->narrow = NULL;
+#endif
+        path->fd = -1;
+        goto success_exit;
     }
-    PyObject_SetAttrString(self, "mode", mode_obj);
-    PyObject_SetAttrString(self, "amrc", PyByteArray_FromStringAndSize(amrc_, sizeof(amrc_)));
-    PyObject_SetAttrString(self, "amrc2", PyByteArray_FromStringAndSize(amrc2_, sizeof(amrc2_)));
-    FILE_PROLOG(self, file);
-    FILE *file = fopen(name, mode);
-    FILE_EPILOG(self, file);
-    int readable = 0;
-    int writable = 0;
-    if (file) {
-      Py_BEGIN_ALLOW_THREADS
-        __fsetlocking(file, locking ? FSETLOCKING_INTERNAL : FSETLOCKING_BYCALLER);
-      readable = __freadable(file);
-      writable = __fwritable(file);
-      Py_END_ALLOW_THREADS
+
+    /* Only call this here so that we don't treat the return value of
+       os.fspath() as an fd or buffer. */
+    is_index = path->allow_fd && PyIndex_Check(o);
+    is_buffer = PyObject_CheckBuffer(o);
+    is_bytes = PyBytes_Check(o);
+    is_unicode = PyUnicode_Check(o);
+
+    if (!is_index && !is_buffer && !is_unicode && !is_bytes) {
+        /* Inline PyOS_FSPath() for better error messages. */
+        _Py_IDENTIFIER(__fspath__);
+        PyObject *func, *res;
+
+        func = _PyObject_LookupSpecial(o, &PyId___fspath__);
+        if (NULL == func) {
+            goto error_format;
+        }
+        res = _PyObject_CallNoArg(func);
+        Py_DECREF(func);
+        if (NULL == res) {
+            goto error_exit;
+        }
+        else if (PyUnicode_Check(res)) {
+            is_unicode = 1;
+        }
+        else if (PyBytes_Check(res)) {
+            is_bytes = 1;
+        }
+        else {
+            PyErr_Format(PyExc_TypeError,
+                 "expected %.200s.__fspath__() to return str or bytes, "
+                 "not %.200s", Py_TYPE(o)->tp_name,
+                 Py_TYPE(res)->tp_name);
+            Py_DECREF(res);
+            goto error_exit;
+        }
+
+        /* still owns a reference to the original object */
+        Py_DECREF(o);
+        o = res;
     }
-    PyObject_SetAttrString(self, "file", PyLong_FromLong((long)file));
-    PyObject_SetAttrString(self, "readable", PyBool_FromLong(readable));
-    PyObject_SetAttrString(self, "writable", PyBool_FromLong(writable));
-    return NULL;
 
-exit:
-    return return_value;
-}
+    if (is_unicode) {
+#ifdef MS_WINDOWS
+        wide = PyUnicode_AsUnicodeAndSize(o, &length);
+        if (!wide) {
+            goto error_exit;
+        }
+        if (length > 32767) {
+            FORMAT_EXCEPTION(PyExc_ValueError, "%s too long for Windows");
+            goto error_exit;
+        }
+        if (wcslen(wide) != length) {
+            FORMAT_EXCEPTION(PyExc_ValueError, "embedded null character in %s");
+            goto error_exit;
+        }
 
-PyObject *
-FILE_fclose(PyObject *self)
-{
-  FILE_DECLARES;
-  PyObject *file_obj = PyObject_GetAttrString(self, "file");
-  if (file_obj == PyNone)
-    Py_RETURN_NONE;
-  FILE *file = PyLong_AsLong(file_obj);
-  FILE_PROLOG(self, file);
-  int result = fclose(file);
-  FILE_EPILOG(self, 0);
-  if (PyObject_SetAttrString(self, "file", PyNone))
-    return NULL;
-  Py_DECREF(file_obj);
-  file_obj = PyNone;
-  Py_INCREF(file_obj);
-  return PyLong_FromLong(result);
-}
+        path->wide = wide;
+        path->narrow = FALSE;
+        path->fd = -1;
+        goto success_exit;
+#else
+        if (!PyUnicode_FSConverter(o, &bytes)) {
+            goto error_exit;
+        }
+#endif
+    }
+    else if (is_bytes) {
+        bytes = o;
+        Py_INCREF(bytes);
+    }
+    else if (is_buffer) {
+        /* XXX Replace PyObject_CheckBuffer with PyBytes_Check in other code
+           after removing support of non-bytes buffer objects. */
+        if (PyErr_WarnFormat(PyExc_DeprecationWarning, 1,
+            "%s%s%s should be %s, not %.200s",
+            path->function_name ? path->function_name : "",
+            path->function_name ? ": "                : "",
+            path->argument_name ? path->argument_name : "path",
+            path->allow_fd && path->nullable ? "string, bytes, os.PathLike, "
+                                               "integer or None" :
+            path->allow_fd ? "string, bytes, os.PathLike or integer" :
+            path->nullable ? "string, bytes, os.PathLike or None" :
+                             "string, bytes or os.PathLike",
+            Py_TYPE(o)->tp_name)) {
+            goto error_exit;
+        }
+        bytes = PyBytes_FromObject(o);
+        if (!bytes) {
+            goto error_exit;
+        }
+    }
+    else if (is_index) {
+        if (!_fd_converter(o, &path->fd)) {
+            goto error_exit;
+        }
+        path->wide = NULL;
+#ifdef MS_WINDOWS
+        path->narrow = FALSE;
+#else
+        path->narrow = NULL;
+#endif
+        goto success_exit;
+    }
+    else {
+ error_format:
+        PyErr_Format(PyExc_TypeError, "%s%s%s should be %s, not %.200s",
+            path->function_name ? path->function_name : "",
+            path->function_name ? ": "                : "",
+            path->argument_name ? path->argument_name : "path",
+            path->allow_fd && path->nullable ? "string, bytes, os.PathLike, "
+                                               "integer or None" :
+            path->allow_fd ? "string, bytes, os.PathLike or integer" :
+            path->nullable ? "string, bytes, os.PathLike or None" :
+                             "string, bytes or os.PathLike",
+            Py_TYPE(o)->tp_name);
+        goto error_exit;
+    }
 
-PyObject *
-FILE_fileno(PyObject *self)
-{
-  FILE_DECLARES;
-  PyObject *file_obj = PyObject_GetAttrString(self, "file");
-  if (file_obj == PyNone)
-    Py_RETURN_NONE;
-  FILE *file = PyLong_AsLong(file_obj);
-  FILE_PROLOG(self, file);
-  int result = fileno(file);
-  FILE_EPILOG(self, file);
-  return PyLong_FromLong(result);
-}
+    length = PyBytes_GET_SIZE(bytes);
+    narrow = PyBytes_AS_STRING(bytes);
+    if ((size_t)length != strlen(narrow)) {
+        FORMAT_EXCEPTION(PyExc_ValueError, "embedded null character in %s");
+        goto error_exit;
+    }
 
-PyObject *
-FILE_fflush(PyObject *self) // METH_NOARGS
-{
-  FILE_DECLARES;
-  PyObject *file_obj = PyObject_GetAttrString(self, "file");
-  if (file_obj == PyNone)
-    Py_RETURN_NONE;
-  FILE *file = PyLong_AsLong(file_obj);
-  FILE_PROLOG(self, file);
-  int result = fflush(file);
-  FILE_EPILOG(self, file);
-  return PyLong_FromLong(result);
-}
+#ifdef MS_WINDOWS
+    wo = PyUnicode_DecodeFSDefaultAndSize(
+        narrow,
+        length
+    );
+    if (!wo) {
+        goto error_exit;
+    }
 
-PyObject *
-FILE_fread(PyObject *self, PyObject *args) // METH_VARARGS
-{
-  PyBuffer *buffer;
-  FILE_DECLARES;
-  PyObject *file_obj = PyObject_GetAttrString(self, "file");
-  if (file_obj == PyNone)
-    Py_RETURN_NONE;
-  if (!PyArg_ParseTuple(args, "y*:fread", &buffer))
-    return NULL;
-  FILE *file = (FILE *)PyLong_AsLong(file_obj);
-  FILE_PROLOG(self, file);
-  int result = fread(buffer->buf, buffer->len, 1, file);
-  FILE_EPILOG(self, file);
-  PyBuffer_Release(buf);
-  return PyLong_FromLong(result);
-}
+    wide = PyUnicode_AsUnicodeAndSize(wo, &length);
+    if (!wide) {
+        goto error_exit;
+    }
+    if (length > 32767) {
+        FORMAT_EXCEPTION(PyExc_ValueError, "%s too long for Windows");
+        goto error_exit;
+    }
+    if (wcslen(wide) != length) {
+        FORMAT_EXCEPTION(PyExc_ValueError, "embedded null character in %s");
+        goto error_exit;
+    }
+    path->wide = wide;
+    path->narrow = TRUE;
+    path->cleanup = wo;
+    Py_DECREF(bytes);
+#else
+    path->wide = NULL;
+    path->narrow = narrow;
+    if (bytes == o) {
+        /* Still a reference owned by path->object, don't have to
+           worry about path->narrow is used after free. */
+        Py_DECREF(bytes);
+    }
+    else {
+        path->cleanup = bytes;
+    }
+#endif
+    path->fd = -1;
 
-PyObject *
-FILE_fwrite(PyObject *self, PyObject *args) // METH_VARARGS
-{
-  PyBuffer *buffer;
-  FILE_DECLARES;
-  PyObject *file_obj = PyObject_GetAttrString(self, "file");
-  if (file_obj == PyNone)
-    Py_RETURN_NONE;
-  if (!PyArg_ParseTuple(args, "y*:fread", &buffer))
-    return NULL;
-  FILE *file = (FILE *)PyLong_AsLong(file_obj);
-  FILE_PROLOG(self, file);
-  int result = fwrite(buffer->buf, buffer->len, 1, file);
-  FILE_EPILOG(self, file);
-  PyBuffer_Release(buf);
-  return PyLong_FromLong(result);
-}
+ success_exit:
+    path->length = length;
+    path->object = o;
+    return Py_CLEANUP_SUPPORTED;
 
-PyObject *
-FILE_rewind(PyObject *self) // METH_NOARGS
-{
-  FILE_DECLARES;
-  PyObject *file_obj = PyObject_GetAttrString(self, "file");
-  if (file_obj == PyNone)
-    Py_RETURN_NONE;
-  FILE *file = PyLong_AsLong(file_obj);
-  FILE_PROLOG(self, file);
-  int result = rewind(file);
-  FILE_EPILOG(self, file);
-  return PyLong_FromLong(result);
-}
-
-PyObject *
-FILE_fgetpos(PyObject *self) // METH_NOARGS
-{
-  PyObject *position = NULL;
-  FILE_DECLARES;
-  PyObject *file_obj = PyObject_GetAttrString(self, "file");
-  if (file_obj == PyNone)
-    Py_RETURN_NONE;
-  if (PyObject_HasAttrString(self, "position"))
-    position = PyObject_GetAttrString(self, "position");
-  else {
-    position = PyByteArray_FromStringAndSize(&position, sizeof(position));
-    PyObject_SetAttrString(self, "position", position);
-  }
-  FILE *file = (FILE *)PyLong_AsLong(file_obj);
-  FILE_PROLOG(self, file);
-  int result = fgetpos(file, (fpos_t *)PyByteArray_AS_STRING(position));
-  FILE_EPILOG(self, file);
-  return PyLong_FromLong(result);
-}
-
-PyObject *
-FILE_fsetpos(PyObject *self, PyObject *args) // METH_VARARGS
-{
-  PyObject *position = NULL;
-  FILE_DECLARES;
-  PyObject *file_obj = PyObject_GetAttrString(self, "file");
-  if (file_obj == PyNone)
-    Py_RETURN_NONE;
-  if (!PyArg_ParseTuple(args, "y*:fread", &buffer))
-    return NULL;
-  if (PyObject_HasAttrString(self, "position"))
-    position = PyObject_GetAttrString(self, "position");
-  else {
-    position = PyByteArray_FromStringAndSize(&position, sizeof(position));
-    PyObject_SetAttrString(self, "position", position);
-  }
-  FILE *file = (FILE *)PyLong_AsLong(file_obj);
-  FILE_PROLOG(self, file);
-  int result = fsetpos(file, (fpos_t *)PyByteArray_AS_STRING(position));
-  FILE_EPILOG(self, file);
-  return PyLong_FromLong(result);
-}
-
-PyObject *
-FILE_fldata(PyObject *self) // METH_NOARGS
-{
-  PyObject *position = NULL;
-  fldata_t fldata_s;
-  FILE_DECLARES;
-  PyObject *file_obj = PyObject_GetAttrString(self, "file");
-  if (file_obj == PyNone)
-    Py_RETURN_NONE;
-  if (PyObject_HasAttrString(self, "position"))
-    position = PyObject_GetAttrString(self, "position");
-  else {
-    position = PyByteArray_FromStringAndSize(&position, sizeof(position));
-    PyObject_SetAttrString(self, "position", position);
-  }
-  FILE *file = (FILE *)PyLong_AsLong(file_obj);
-  FILE_PROLOG(self, file);
-  int result = fldata(file, NULL, &fldata);
-  FILE_EPILOG(self, file);
-  return PyLong_FromLong(result);
-}
-
-PyObject *
-FILE_flocate(PyObject *self, PyObject *args) // METH_VARARGS
-{
-  PyBuffer *buffer = NULL;
-  int options = 0;
-  FILE_DECLARES;
-  PyObject *file_obj = PyObject_GetAttrString(self, "file");
-  if (file_obj == PyNone)
-    Py_RETURN_NONE;
-  if (!PyArg_ParseTuple(args, "y*i:fread", &buffer, options))
-    return NULL;
-  FILE *file = (FILE *)PyLong_AsLong(file_obj);
-  FILE_PROLOG(self, file);
-  int result = flocate(file, buffer->buf, buffer->len, options);
-  FILE_EPILOG(self, file);
-  return PyLong_FromLong(result);
-}
-
-PyObject *
-FILE_fdelrec(PyObject *self)  // METH_NOARGS
-{
-  FILE_DECLARES;
-  PyObject *file_obj = PyObject_GetAttrString(self, "file");
-  if (file_obj == PyNone)
-    Py_RETURN_NONE;
-  if (!PyArg_ParseTuple(args, "y*i:fread", &buffer, options))
-    return NULL;
-  FILE *file = (FILE *)PyLong_AsLong(file_obj);
-  FILE_PROLOG(self, file);
-  int result = fdelrec(file);
-  FILE_EPILOG(self, file);
-  return PyLong_FromLong(result);
-}
-
-PyObject *
-FILE_fupdate(PyObject *self, PyObject *args) // METH_VARARGS
-{
-  PyBuffer *buffer = NULL;
-  FILE_DECLARES;
-  PyObject *file_obj = PyObject_GetAttrString(self, "file");
-  if (file_obj == PyNone)
-    Py_RETURN_NONE;
-  if (!PyArg_ParseTuple(args, "y*:fread", &buffer))
-    return NULL;
-  FILE *file = (FILE *)PyLong_AsLong(file_obj);
-  FILE_PROLOG(self, file);
-  int result = fupdate(buffer->buf, buffer->len, file);
-  FILE_EPILOG(self, file);
-  return PyLong_FromLong(result);
+ error_exit:
+    Py_XDECREF(o);
+    Py_XDECREF(bytes);
+#ifdef MS_WINDOWS
+    Py_XDECREF(wo);
+#endif
+    return 0;
 }
 
 static PyObject *
@@ -527,26 +474,13 @@ _zos_system_call(PyObject *self, PyObject *args)
        : : "a"(bytesptr) : "r0", "r1", "r2", "r13", "r14", "r15");
   }
 
-  PyBuffer_Release(&buffer);
+  Py_buffer_Release(&buffer);
   Py_RETURN_NONE;
 }
 
 static char *doc = "";
 
 static PyMethodDef _zos_methods[] = {
-  {"FILE___init__", FILE___init__, METH_FASTCALL | METH_KEYWORDS, doc},
-  {"FILE_fclose", FILE_fclose, METH_NOARGS, doc},
-  {"FILE_fileno", FILE_fileno, METH_NOARGS, doc},
-  {"FILE_fflush", FILE_fflush, METH_NOARGS, doc},
-  {"FILE_fread", FILE_fread,  METH_VARARGS, doc},
-  {"FILE_fwrite", FILE_fwrite, METH_VARARGS, doc},
-  {"FILE_rewind", FILE_rewind, METH_NOARGS, doc},
-  {"FILE_fgetpos", FILE_fgetpos, METH_NOARGS, doc},
-  {"FILE_fsetpos", FILE_fsetpos, METH_VARARGS, doc},
-  {"FILE_fldata", FILE_fldata, METH_NOARGS, doc},
-  {"FILE_flocate", FILE_flocate, METH_VARARGS, doc},
-  {"FILE_fdelrec", FILE_fdelrec, METH_NOARGS, doc},
-  {"FILE_fupdate", FILE_fupdate, METH_VARARGS, doc},
   {"stat_internal",   zos_stat_internal,  METH_FASTCALL|METH_KEYWORDS, zos_stat_internal__doc__},
   {"chattr_internal", zos_chattr_internal,METH_VARARGS, zos_chattr_internal__doc__},
   {"system_call", os_zos_system_call, METH_VARARGS, zos_system_call__doc__},
@@ -580,31 +514,6 @@ INITFUNC(void)
     if (m == NULL)
         return NULL;
 
-#ifdef __RBA_EQ
-    if (PyModule_AddIntMacro(m, __RBA_EQ)) return NULL;
-    if (PyModule_AddIntMacro(m, __KEY_FIRST)) return NULL;
-    if (PyModule_AddIntMacro(m, __KEY_LAST)) return NULL;
-    if (PyModule_AddIntMacro(m, __KEY_EQ)) return NULL;
-    if (PyModule_AddIntMacro(m, __KEY_EQ_BWD)) return NULL;
-    if (PyModule_AddIntMacro(m, __KEY_GE)) return NULL;
-    if (PyModule_AddIntMacro(m, __RBA_EQ_BWD)) return NULL;
-#endif
-#ifdef F_SETTAG
-    if (PyModule_AddIntMacro(m, F_SETTAG)) return NULL;
-    if (PyModule_AddIntMacro(m, FT_UNTAGGED)) return NULL;
-    if (PyModule_AddIntMacro(m, FT_BINARY)) return NULL;
-#endif
-#ifdef F_CONTROL_CVT
-    if (PyModule_AddIntMacro(m, F_CONTROL_CVT)) return NULL;
-    if (PyModule_AddIntMacro(m, SETCVTOFF)) return NULL;
-    if (PyModule_AddIntMacro(m, SETCVTON)) return NULL;
-    if (PyModule_AddIntMacro(m, SETAUTOCVTON)) return NULL;
-    if (PyModule_AddIntMacro(m, QUERYCVT)) return NULL;
-#endif
-#ifdef SETCVTALL
-    if (PyModule_AddIntMacro(m, SETCVTALL)) return NULL;
-    if (PyModule_AddIntMacro(m, SETAUTOCVTALL)) return NULL;
-#endif
 #ifdef __MVS__
     if (PyModule_AddIntMacro(m, SYSTEM_CALL__SVC)) return NULL;
     if (PyModule_AddIntMacro(m, SYSTEM_CALL__PC)) return NULL;
