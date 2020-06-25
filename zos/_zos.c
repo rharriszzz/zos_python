@@ -212,7 +212,7 @@ static struct PyModuleDef _zosmodule = {
 #define ATTRIB_SIZE sizeof(attrib_t)
 
 MODINIT_FUNC
-INITFUNC(void)
+PyInit__zos(void)
 {
   PyObject *m;
 
