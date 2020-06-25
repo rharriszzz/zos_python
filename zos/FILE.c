@@ -121,7 +121,7 @@ FILE_fclose(PyObject *self)
 }
 
 PyObject *
-FILE_fileno(PyObject *self)
+FILE_fileno(PyObject *self) // METH_NOARGS
 {
   int result;
   FILE_DECLARES;
