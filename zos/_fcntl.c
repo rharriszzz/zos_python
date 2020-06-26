@@ -1,7 +1,7 @@
 /*
 e=$HOME/miniconda
 o='-DNDEBUG -O -qdll -qexportall -qascii -q64 -qnocse -qgonum -qasm -qbitfield=signed -qtarget=zosv2r2 -qarch=10 -qtune=12 -O3 -qstrict -qfloat=ieee:nomaf -qlanglvl=extc1x  -D__MV17195__ -D_XOPEN_SOURCE=600'
-xlc_echocmd $o -I$e/include/python3.7m -c -o fcntl_symbols.o fcntl_symbols.c
+xlc_echocmd $o -I$e/include/python3.7m -c -o _fcntl.o _fcntl.c
  */
 
 #define PY_SSIZE_T_CLEAN
@@ -10,18 +10,18 @@ xlc_echocmd $o -I$e/include/python3.7m -c -o fcntl_symbols.o fcntl_symbols.c
 #include <stdio_ext.h>
 #include <errno.h>
 
-static PyMethodDef fcntl_symbols_methods[] = {
+static PyMethodDef _fcntl_methods[] = {
   {NULL,              NULL}            /* Sentinel */
 };
 
-PyDoc_STRVAR(fcntl_symbols__doc__, "");
+PyDoc_STRVAR(_fcntl__doc__, "");
 
-static struct PyModuleDef fcntl_symbolsmodule = {
+static struct PyModuleDef _fcntlmodule = {
     PyModuleDef_HEAD_INIT,
-    "fcntl_symbols",
-    fcntl_symbols__doc__,
+    "_fcntl",
+    _fcntl__doc__,
     -1,
-    fcntl_symbols_methods,
+    _fcntl_methods,
     NULL,
     NULL,
     NULL,
@@ -36,7 +36,7 @@ INITFUNC(void)
     PyObject *list;
     const char * const *trace;
 
-    m = PyModule_Create(&fcntl_symbolsmodule);
+    m = PyModule_Create(&_fcntlmodule);
     if (m == NULL)
         return NULL;
 
