@@ -1,0 +1,28 @@
+#!/bin/sh
+e=/u/pdharr/miniconda/envs/py38
+o='-DNDEBUG -O -qdll -qexportall -qascii -q64 -qnocse -qgonum -qasm -qbitfield=signed -qtarget=zosv2r2 -qarch=10 -qtune=12 -O3 -qstrict -qfloat=ieee:nomaf -qlanglvl=extc1x  -D__MV17195__ -D_XOPEN_SOURCE=600'
+i=$e/include/python3.8
+c="xlc_echocmd $o -I$i"
+
+e=/u/pdharr/pyz/usr/lpp/IBM/cyp/v3r8/pyz
+o="-fno-strict-aliasing -DNDEBUG -O3 -qarch=10 -qlanglvl=extc99 -q64 -D_XOPEN_SOURCE_EXTENDED -D_UNIX03_THREADS -D_POSIX_THREADS -D_OPEN_SYS_FILE_EXT -qexportall -qascii -qstrict -qnocsect -Wa,asa,goff -Wa,xplink -qgonumber -qenum=int"
+i=$e/include/python3.8
+c="/bin/xlclang $o -I$i"
+
+l="$c -Wl,dll"
+
+pso=libpython3.8.so
+px=libpython3.8.x
+nm $e/lib/$pso | grep ' T ' | grep -v '(unnamed)' | sed -e 's/^.* T \(.*\)$/ IMPORT CODE64,'"'$pso','\1'/" > imports
+nm $e/lib/$pso | grep ' \(B\|D\) ' | grep -v '(unnamed)' | sed -e 's/^.* \(B\|D\) \(.*\)$/ IMPORT DATA64,'"'$pso','\2'/" >> imports
+cat imports | grep -v 'IEWBLIT' | sed -e 's/^\(.\{71\}\)\(.*\)/\1\n \2/' | dd conv=block cbs=80 > $px
+rm imports
+autotag $px
+
+for f in *.c; do
+    b=${f%.c}
+    $l -o $b.so $b.c $px
+done
+rm *.x *.o
+
+

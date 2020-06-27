@@ -11676,8 +11676,8 @@ os_abort_impl(PyObject *module)
 /*[clinic end generated code: output=dcf52586dad2467c input=cf2c7d98bc504047]*/
 {
 #ifdef __MVS__
-    cleanup_semaphores();
-    encode_standard_files_restore();
+  //cleanup_semaphores();
+  //encode_standard_files_restore();
 #endif
     abort();
     /*NOTREACHED*/

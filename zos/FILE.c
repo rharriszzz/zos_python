@@ -165,7 +165,7 @@ FILE_fread(PyObject *self, PyObject *args) // METH_VARARGS
   FILE_PROLOG(self, file);
   result = fread(buffer->buf, buffer->len, 1, file);
   FILE_EPILOG(self, file);
-  Py_buffer_Release(buffer);
+  PyBuffer_Release(&buffer);
   return PyLong_FromLong(result);
 }
 
@@ -184,7 +184,7 @@ FILE_fwrite(PyObject *self, PyObject *args) // METH_VARARGS
   FILE_PROLOG(self, file);
   result = fwrite(buffer->buf, buffer->len, 1, file);
   FILE_EPILOG(self, file);
-  Py_buffer_Release(buffer);
+  PyBuffer_Release(&buffer);
   return PyLong_FromLong(result);
 }
 
