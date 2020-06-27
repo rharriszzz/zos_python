@@ -356,7 +356,7 @@ static struct PyModuleDef FILEmodule = {
 
 
 PyMODINIT_FUNC
-INITFUNC(void)
+PyInit_FILE(void)
 {
     PyObject *m, *v;
     PyObject *list;

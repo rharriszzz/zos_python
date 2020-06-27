@@ -1,0 +1,16 @@
+#!/bin/sh
+
+e=/u/pdharr/pyz/usr/lpp/IBM/cyp/v3r8/pyz
+p=$e/bin/python3.8
+PATH=$e/bin:/u/pdharr/miniconda/bin:/rsusr/ported/bin:/rsusr/local/bin:/bin:/u/pdharr/bin
+LIBPATH=$e/lib:/rsusr/ported/lib:/rsusr/local/lib:/usr/lib:/u/pdharr/miniconda/lib/perl5/5.24.0/os390/CORE
+
+for f in *.so; do
+    b=${f%.so}
+    echo "=== $b ==="
+    $p -c "import $b"
+done
+
+echo "=== ==="
+cd ..
+$p zos/test/test_zos.py

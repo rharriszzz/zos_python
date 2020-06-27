@@ -30,7 +30,7 @@ static struct PyModuleDef _fcntlmodule = {
 
 
 PyMODINIT_FUNC
-INITFUNC(void)
+PyInit__fcntl(void)
 {
     PyObject *m, *v;
     PyObject *list;

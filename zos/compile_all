@@ -15,7 +15,7 @@ pso=libpython3.8.so
 px=libpython3.8.x
 nm $e/lib/$pso | grep ' T ' | grep -v '(unnamed)' | sed -e 's/^.* T \(.*\)$/ IMPORT CODE64,'"'$pso','\1'/" > imports
 nm $e/lib/$pso | grep ' \(B\|D\) ' | grep -v '(unnamed)' | sed -e 's/^.* \(B\|D\) \(.*\)$/ IMPORT DATA64,'"'$pso','\2'/" >> imports
-cat imports | grep -v 'IEWBLIT' | sed -e 's/^\(.\{71\}\)\(.*\)/\1\n \2/' | dd conv=block cbs=80 > $px
+cat imports | grep "'Py\|'_Py" | sed -e 's/^\(.\{71\}\)\(.*\)/\1\n \2/' | dd conv=block cbs=80 > $px
 rm imports
 autotag $px
 
@@ -23,6 +23,6 @@ for f in *.c; do
     b=${f%.c}
     $l -o $b.so $b.c $px
 done
-rm *.x *.o
+#rm *.x *.o
 
 
