@@ -154,7 +154,7 @@ PyObject *
 FILE_fread(PyObject *self, PyObject *args) // METH_VARARGS
 {
   int result;
-  Py_buffer *buffer;
+  Py_buffer buffer;
   FILE_DECLARES;
   PyObject *file_obj = PyObject_GetAttrString(self, "file");
   if (file_obj == Py_None)
@@ -163,7 +163,7 @@ FILE_fread(PyObject *self, PyObject *args) // METH_VARARGS
     return NULL;
   FILE *file = (FILE *)PyLong_AsLong(file_obj);
   FILE_PROLOG(self, file);
-  result = fread(buffer->buf, buffer->len, 1, file);
+  result = fread(buffer.buf, buffer.len, 1, file);
   FILE_EPILOG(self, file);
   PyBuffer_Release(&buffer);
   return PyLong_FromLong(result);
@@ -173,7 +173,7 @@ PyObject *
 FILE_fwrite(PyObject *self, PyObject *args) // METH_VARARGS
 {
   int result;
-  Py_buffer *buffer;
+  Py_buffer buffer;
   FILE_DECLARES;
   PyObject *file_obj = PyObject_GetAttrString(self, "file");
   if (file_obj == Py_None)
@@ -182,7 +182,7 @@ FILE_fwrite(PyObject *self, PyObject *args) // METH_VARARGS
     return NULL;
   FILE *file = (FILE *)PyLong_AsLong(file_obj);
   FILE_PROLOG(self, file);
-  result = fwrite(buffer->buf, buffer->len, 1, file);
+  result = fwrite(buffer.buf, buffer.len, 1, file);
   FILE_EPILOG(self, file);
   PyBuffer_Release(&buffer);
   return PyLong_FromLong(result);

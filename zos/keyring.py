@@ -1,11 +1,18 @@
+from zos._system_call import *
+
 import codecs
+cp1047_oe = 'cp1047_oe'
+try:
+    codecs.lookup(cp1047_oe)
+except LookupError:
+    cp1047_oe = 'cp1047'
 from ctypes import *
 
 sep = '_'
 
 structure_classes = {}
 
-encoding = 'cp1047_oe'
+encoding = cp1047_oe
 try:
     codecs.lookup(encoding)
 except LookupError:
@@ -236,11 +243,6 @@ def show_fields(obj, path=(), debug=False):
         else:
             print("%r %r" % (path_with_field, value))
 
-try:
-    from os import SYSTEM_CALL__CALL
-except Exception:
-    SYSTEM_CALL__CALL = 0
-
 def CallArgs(base_class, fname, superclass, debug=False):
     if debug:
         print("CallArgs")
@@ -368,23 +370,15 @@ class SafError(Exception):
 
 from threading import local
 
-try:
-    import zos.load
-    loaded_functions = local()
-    def load(name):
-        if not hasattr(loaded_functions, name):
-            fn = zos.load.load(name)
-            if fn & 1:
-                fn &= ~1 # remove the amode=64 indicator
-            setattr(loaded_functions, name, fn)
-        return getattr(loaded_functions, name)
-    from os import zos_system_call
-except Exception as e:
-    print(e)
-    def load(name):
-        return 0
-    def zos_system_call(call_args):
-        pass
+import zos.load
+loaded_functions = local()
+def load(name):
+    if not hasattr(loaded_functions, name):
+        fn = zos.load.load(name)
+        if fn & 1:
+            fn &= ~1 # remove the amode=64 indicator
+        setattr(loaded_functions, name, fn)
+    return getattr(loaded_functions, name)
 
 class racf_get_data_with_dependencies_superclass(Structure):
    

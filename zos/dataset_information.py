@@ -1,16 +1,25 @@
+from zos._bytearray import *
+from zos._system_call import *
+
 import ctypes
 
 def dump_region(address, size):
     result = "address=%016X, size=%016X\n" % (address, size)
-    for addr in range(address, address+size):
+    for addr in range(address, address+size, 32):
         if addr > address and ((addr-address) % 8) == 0:
             result+="\n"
         if addr == address or ((addr-address) % 8) == 0:
             result += "%04X  " % (addr - address)
-        result+="%02X " % (ctypes.c_ubyte.from_address(addr).value,)
+        for addr1 in range(addr, addr+32, 4):
+            result+="%08X " % (ctypes.c_uint.from_address(addr1).value,)
     return result
 
 import codecs
+cp1047_oe = 'cp1047_oe'
+try:
+    codecs.lookup(cp1047_oe)
+except LookupError:
+    cp1047_oe = 'cp1047'
 from datetime import date
 import os
 import struct
@@ -82,7 +91,7 @@ def unpack_from_format(data, offset, fmt, debug=False):
                 if value_int & (1 << (size - 1 - field_pos)):
                     value.add(field_name)
         elif 's' in fmt: 
-            value = str.rstrip(codecs.decode(values_list.pop(0), 'cp1047_oe'))
+            value = str.rstrip(codecs.decode(values_list.pop(0), cp1047_oe))
         else:
             value = values_list.pop(0)
         if value:
@@ -93,59 +102,60 @@ def volser_from_dsname(dsname, svc_args=None, encoding=None):
     if svc_args is None:
         svc_args = bytearray(5*8)
     if encoding is None:
-        dsname = codecs.encode("{:44s}".format(dsname), encoding='cp1047_oe')
-    locate = bytearray(4+4+4+4 + 44+256).set_address_size(31)
+        dsname = codecs.encode("{:44s}".format(dsname), encoding=cp1047_oe)
+    locate = bytearray_set_address_size(bytearray(4+4+4+4 + 44+4 + 265), 31)
     struct.pack_into('=IIII' + '44s', locate, 0,
-                     0x44000000, locate.buffer_address()+4*4, 0, locate.buffer_address()+4*4+44,
+                     0x44000000, bytearray_buffer_address(locate)+4*4, 0, bytearray_buffer_address(locate)+4*4+44+4,
                      dsname)
     struct.pack_into('QQQQQ', svc_args, 0,
-                     0, 0, locate.buffer_address(),
-                     26, os.SYSTEM_CALL__SVC) # LOCATE
-    os.zos_system_call(svc_args)
+                     0, 0, bytearray_buffer_address(locate),
+                     26, SYSTEM_CALL__SVC) # LOCATE
+    zos_system_call(svc_args)
     rc = struct.unpack_from('=4xI', svc_args, 0)[0]
     if rc != 0:
         raise OSError("LOCATE NAME returned rc=0x%X" % (rc,))
-    volser = struct.unpack_from('6s', locate, 4*4+44 + 2+4)[0]
+    volser = struct.unpack_from('6s', locate, 4*4+44+4 + 2+4)[0]
     if encoding is None:
-        volser = codecs.decode(volser_ebcdic, 'cp1047_oe')
+        volser = codecs.decode(volser_ebcdic, cp1047_oe)
+    locate = None
     return volser
         
 def dscb1data_from_dsname_and_volser(dsname, volser, debug=False, svc_args=None, encoding=None):
     if svc_args is None:
         svc_args = bytearray(5*8)
     if encoding is None:
-        dsname = codecs.encode("{:44s}".format(dsname), encoding='cp1047_oe')
-        volser = codecs.encode("{:6s}".format(volser), encoding='cp1047_oe')
-    obtain_search = bytearray(4+4+4+4 + 44+6+140).set_address_size(31)
+        dsname = codecs.encode("{:44s}".format(dsname), encoding=cp1047_oe)
+        volser = codecs.encode("{:6s}".format(volser), encoding=cp1047_oe)
+    obtain_search = bytearray_set_address_size(bytearray(4+4+4+4 + 44+6+140), 31)
     struct.pack_into('=IIII' + '44s6s', obtain_search, 0,
                      0xC1000000 + 0x801, # CAMLST_SEARCH + CAMLST_EADSCB_OK
-                     obtain_search.buffer_address()+4*4,    
-                     obtain_search.buffer_address()+4*4+44,
-                     obtain_search.buffer_address()+4*4+44+6,
+                     bytearray_buffer_address(obtain_search)+4*4,    
+                     bytearray_buffer_address(obtain_search)+4*4+44,
+                     bytearray_buffer_address(obtain_search)+4*4+44+6,
                      dsname, volser)
     struct.pack_into('QQQQQ', svc_args, 0,
-                     0, 0, obtain_search.buffer_address(),
-                     27, os.SYSTEM_CALL__SVC) # CAMLST OBTAIN
-    os.zos_system_call(svc_args)
+                     0, 0, bytearray_buffer_address(obtain_search),
+                     27, SYSTEM_CALL__SVC) # CAMLST OBTAIN
+    zos_system_call(svc_args)
     rc = struct.unpack_from('=4xI', svc_args, 0)[0]
     if rc != 0:
         raise OSError("CAMLIST SEARCH returned rc=0x%X" % (rc,))
     if debug:
-        print(dump_region(obtain_search.buffer_address()+4*4+44+6, 140))
+        print(dump_region(bytearray_buffer_address(obtain_search)+4*4+44+6, 140))
     return (obtain_search, 4*4+44+6)
 
 def get_dscb1(dsname, volser=None, debug=False):
-    dsname = codecs.encode("{:44s}".format(dsname), encoding='cp1047_oe')
+    dsname = codecs.encode("{:44s}".format(dsname), encoding=cp1047_oe)
     svc_args = bytearray(5*8)
     if volser:
-        volser = codecs.encode("{:6s}".format(volser), encoding='cp1047_oe')
+        volser = codecs.encode("{:6s}".format(volser), encoding=cp1047_oe)
     else:
-        volser = volser_from_dsname(dsname, svc_args, 'cp1047_oe')
+        volser = volser_from_dsname(dsname, svc_args, cp1047_oe)
     if debug:
-        print("volser=%s" % str.rstrip(codecs.decode(volser, 'cp1047_oe')))
+        print("volser=%s" % str.rstrip(codecs.decode(volser, cp1047_oe)))
 
     dscb1data, dscb1offset = dscb1data_from_dsname_and_volser(dsname, volser,
-                                                              debug=debug, svc_args=svc_args, encoding='cp1047_oe')
+                                                              debug=debug, svc_args=svc_args, encoding=cp1047_oe)
 
     return unpack_from_format(dscb1data, dscb1offset, dscb1_fmt, debug=debug)
                        

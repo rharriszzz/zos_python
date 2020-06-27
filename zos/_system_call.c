@@ -8,6 +8,7 @@ xlc_echocmd $o -I$e/include/python3.8 -c -o _system_call.o _system_call.c
 
 #include "Python.h"
 
+
 PyDoc_STRVAR(_system_call__doc__,
 	     "The module _system_call contains the function zos_system_call.");
 
@@ -23,7 +24,7 @@ See the examples in this directory.");
 #define SYSTEM_CALL__CALL31 4
        
 static PyObject *
-zos_system_call(PyObject *self, PyObject *args)
+zos_system_call(PyObject *module, PyObject *args)
 {
   Py_ssize_t byteslen;
   const char *bytesptr;
@@ -35,6 +36,7 @@ zos_system_call(PyObject *self, PyObject *args)
   byteslen = buffer.len;
 
   long type = ((long *)bytesptr)[4];
+  Py_BEGIN_ALLOW_THREADS
   if (type == SYSTEM_CALL__SVC) {
     __asm__
       (" LMG   15,2,0(%0) \n"
@@ -72,7 +74,7 @@ zos_system_call(PyObject *self, PyObject *args)
        " STMG  15,1,0(%0) \n"
        : : "a"(bytesptr) : "r0", "r1", "r2", "r13", "r14", "r15");
   }
-
+  Py_END_ALLOW_THREADS
   PyBuffer_Release(&buffer);
   Py_RETURN_NONE;
 }

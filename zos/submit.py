@@ -1,7 +1,12 @@
-from zos.dynalloc import dynalloc
 import codecs
+cp1047_oe = 'cp1047_oe'
+try:
+    codecs.lookup(cp1047_oe)
+except LookupError:
+    cp1047_oe = 'cp1047'
 import ctypes
 import sys
+from zos.dynalloc import dynalloc
 
 def MEM4(address, offset):
     return ctypes.c_uint.from_address(address + offset).value
@@ -26,7 +31,7 @@ def get_cicb_from_file(job_out, mode):
 
 def get_jobid_from_cicb(cicb):
     byte_array = (ctypes.c_char * 8).from_address(cicb + 0xFC).value
-    return codecs.decode(byte_array, 'cp1047_oe')
+    return codecs.decode(byte_array, cp1047_oe)
 
 def submit_job(job):
     rc, results = dynalloc({"SYSOUT":"A",
@@ -38,7 +43,7 @@ def submit_job(job):
         return list()
     mode = "wt, recfm=F, lrecl=80"
     with open("DD:%s" % results['DDNAME_RETURN'],
-              mode, use_fopen=True, encoding="cp1047_oe") as job_out:
+              mode, use_fopen=True, encoding=cp1047_oe) as job_out:
         cicb = get_cicb_from_file(job_out, mode)
         jobids = list()
         for line in job.splitlines(True):

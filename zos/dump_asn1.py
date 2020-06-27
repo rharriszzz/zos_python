@@ -15,7 +15,7 @@ import sys
 import base64
 import binascii
 
-import asn1
+from .asn1 import *
 import optparse
 
 
@@ -41,25 +41,25 @@ def read_pem(input_file):
 
 
 tag_id_to_string_map = {
-    asn1.Numbers.Boolean: "BOOLEAN",
-    asn1.Numbers.Integer: "INTEGER",
-    asn1.Numbers.BitString: "BIT STRING",
-    asn1.Numbers.OctetString: "OCTET STRING",
-    asn1.Numbers.Null: "NULL",
-    asn1.Numbers.ObjectIdentifier: "OBJECT",
-    asn1.Numbers.PrintableString: "PRINTABLESTRING",
-    asn1.Numbers.IA5String: "IA5STRING",
-    asn1.Numbers.UTCTime: "UTCTIME",
-    asn1.Numbers.Enumerated: "ENUMERATED",
-    asn1.Numbers.Sequence: "SEQUENCE",
-    asn1.Numbers.Set: "SET"
+    Numbers.Boolean: "BOOLEAN",
+    Numbers.Integer: "INTEGER",
+    Numbers.BitString: "BIT STRING",
+    Numbers.OctetString: "OCTET STRING",
+    Numbers.Null: "NULL",
+    Numbers.ObjectIdentifier: "OBJECT",
+    Numbers.PrintableString: "PRINTABLESTRING",
+    Numbers.IA5String: "IA5STRING",
+    Numbers.UTCTime: "UTCTIME",
+    Numbers.Enumerated: "ENUMERATED",
+    Numbers.Sequence: "SEQUENCE",
+    Numbers.Set: "SET"
 }
 
 class_id_to_string_map = {
-    asn1.Classes.Universal: "U",
-    asn1.Classes.Application: "A",
-    asn1.Classes.Context: "C",
-    asn1.Classes.Private: "P"
+    Classes.Universal: "U",
+    Classes.Application: "A",
+    Classes.Context: "C",
+    Classes.Private: "P"
 }
 
 object_id_to_string_map = {
@@ -120,7 +120,7 @@ def object_identifier_to_string(identifier):
 
 
 def value_to_string(tag_number, value):
-    if tag_number == asn1.Numbers.ObjectIdentifier:
+    if tag_number == Numbers.ObjectIdentifier:
         return object_identifier_to_string(value)
     elif isinstance(value, bytes):
         return '0x' + str(binascii.hexlify(value).upper())
@@ -134,11 +134,11 @@ def pretty_print(input_stream, output_stream, indent=0):
     """Pretty print ASN.1 data."""
     while not input_stream.eof():
         tag = input_stream.peek()
-        if tag.typ == asn1.Types.Primitive:
+        if tag.typ == Types.Primitive:
             tag, value = input_stream.read()
             output_stream.write(' ' * indent)
             output_stream.write('[{}] {}: {}\n'.format(class_id_to_string(tag.cls), tag_id_to_string(tag.nr), value_to_string(tag.nr, value)))
-        elif tag.typ == asn1.Types.Constructed:
+        elif tag.typ == Types.Constructed:
             output_stream.write(' ' * indent)
             output_stream.write('[{}] {}\n'.format(class_id_to_string(tag.cls), tag_id_to_string(tag.nr)))
             input_stream.enter()
@@ -167,7 +167,7 @@ if __name__ == "__main__":
     else:
         output_file = sys.stdout
 
-    decoder = asn1.Decoder()
+    decoder = Decoder()
     decoder.start(input_data)
     
     pretty_print(decoder, output_file)

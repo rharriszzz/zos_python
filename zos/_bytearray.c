@@ -11,21 +11,27 @@ xlc_echocmd $o -I$e/include/python3.8 -c -o _bytearray.o _bytearray.c
 #define PY_SSIZE_T_CLEAN
 #include "Python.h"
 #include <errno.h>
+#include <stdio.h>
 
 static PyObject *
-bytearray_set_address_size(PyByteArrayObject *self, PyObject *arg)
+bytearray_set_address_size(PyByteArrayObject *module, PyObject *args)
 {
   int nbits;
-
+  PyByteArrayObject *self;
+  
+  if (!PyArg_ParseTuple(args, "Oi:bytearray_set_address_size", &self, &nbits))
+    return NULL;
+  if (!PyByteArray_Check(self)) {
+    PyErr_SetString(PyExc_TypeError, "The first argument must be a bytearray");
+    return NULL;
+  }
   if (self->ob_exports > 0) {
     PyErr_SetString(PyExc_BufferError,
                     "Existing exports of data: cannot perform set_address_size");
     return 0;
   }
-  if (!PyArg_Parse(arg, "i:setaddress_size", &nbits)) {
-    return 0;
-  }
-  unsigned char *new_addr = NULL;
+  char *old_addr = self->ob_bytes;
+  char *new_addr = NULL;
   size_t size;
   if (nbits == 24) {
     new_addr = __malloc24(self->ob_alloc);
@@ -39,7 +45,6 @@ bytearray_set_address_size(PyByteArrayObject *self, PyObject *arg)
                     "Callot allocate");
     return NULL;
   }
-  unsigned char *old_addr = self->ob_bytes;
   memcpy(new_addr, old_addr, self->ob_alloc);
   self->ob_bytes = new_addr;
   self->ob_start += (new_addr - old_addr);
@@ -57,9 +62,16 @@ Any value other than 24 or 31 is equivalent to 0 meaning 64 bits.");
 
 
 static PyObject *
-bytearray_buffer_address(PyByteArrayObject *self)
+bytearray_buffer_address(PyObject *module, PyObject *args)
 {
-    return PyLong_FromLong((long)(self->ob_bytes));
+  PyByteArrayObject *self;
+  if (!PyArg_ParseTuple(args, "O:bytearray_buffer_address", &self))
+    return NULL;
+  if (!PyByteArray_Check(self)) {
+    PyErr_SetString(PyExc_TypeError, "The first argument must be a bytearray");
+    return NULL;
+  }
+  return PyLong_FromLong((long)(self->ob_bytes));
 }
 
 PyDoc_STRVAR(bytearray_buffer_address__doc__,
@@ -71,8 +83,8 @@ Returns the addrress of the buffer");
 PyDoc_STRVAR(doc, "");
 
 static PyMethodDef _bytearray_methods[] = {
-  {"bytearray_set_address_size", (PyCFunction)bytearray_set_address_size, METH_O, bytearray_set_addresss_size__doc__},
-  {"bytearray_buffer_address", (PyCFunction)bytearray_buffer_address, METH_NOARGS, bytearray_buffer_address__doc__},
+  {"bytearray_set_address_size", (PyCFunction)bytearray_set_address_size, METH_VARARGS, bytearray_set_addresss_size__doc__},
+  {"bytearray_buffer_address", (PyCFunction)bytearray_buffer_address, METH_VARARGS, bytearray_buffer_address__doc__},
   {NULL,              NULL}            /* Sentinel */
 };
 

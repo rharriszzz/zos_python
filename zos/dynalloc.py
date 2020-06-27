@@ -1,13 +1,21 @@
-
-from .dynalloc_definitions import *
+from zos._bytearray import *
+from zos._system_call import *
 
 import codecs
+cp1047_oe = 'cp1047_oe'
+try:
+    codecs.lookup(cp1047_oe)
+except LookupError:
+    cp1047_oe = 'cp1047'
+
 import collections
 import struct
 
+from .dynalloc_definitions import *
+
 def process_text_units(text_unit_mapping, keyword_definitions, text_unit_array, tu_input=True, verbose=False):
     if text_unit_array:
-        text_unit_array_address = text_unit_array.buffer_address()
+        text_unit_array_address = bytearray_buffer_address(text_unit_array)
     return_mapping = {} if not tu_input else None
     tu_count = len(text_unit_mapping.items())
     ptr_offset = 0
@@ -64,7 +72,7 @@ def process_text_units(text_unit_mapping, keyword_definitions, text_unit_array, 
                     size += 2
                     if tu_type == KD_TYPE_VARCHAR:
                         element = str.rstrip(codecs.decode(struct.unpack_from("%ds" % len_element, text_unit_array, size)[0],
-                                                           'cp1047_oe'))
+                                                           cp1047_oe))
                     else:
                         offset = 0
                         if len_element == 1:
@@ -86,7 +94,7 @@ def process_text_units(text_unit_mapping, keyword_definitions, text_unit_array, 
                 if isinstance(tu_type, collections.Mapping):
                     element = tu_type[element]
                 else:
-                    element = codecs.encode(element, encoding='cp1047_oe')
+                    element = codecs.encode(element, encoding=cp1047_oe)
             if isinstance(element, int):
                 if text_unit_array and tu_input:
                     struct.pack_into("H", text_unit_array, size, max_len)
@@ -144,25 +152,25 @@ def retrieve_dynalloc_messages(message_function, verbName, keyword_definitions, 
     if block_count > MAX_EM_MESSAGES:
         block_count = MAX_EM_MESSAGES
 
-    emMessages = bytearray(256 * block_count).set_address_size(31)
+    emMessages = bytearray_set_address_size(bytearray(256 * block_count), 31)
     
-    emCall = bytearray(28).set_address_size(31)
+    emCall = bytearray_set_address_size(bytearray(28), 31)
     struct.pack_into('BBBxII4xI', emCall, 0,
                          0x20, 50, block_count,
-                         svc99rb.buffer_address(), svc99_rc, emMessages.buffer_address())
+                         bytearray_buffer_address(svc99rb), svc99_rc, bytearray_buffer_address(emMessages))
     if verbose:
         print(["%08X" % v for v in struct.unpack_from('IIIII', emCall, 0)])
 
-    emCallPlist = bytearray(4).set_address_size(31)
-    struct.pack_into('I', emCallPlist, 0, 0x80000000 | emCall.buffer_address())
+    emCallPlist = bytearray_set_address_size(bytearray(4), 31)
+    struct.pack_into('I', emCallPlist, 0, 0x80000000 | bytearray_buffer_address(emCall))
                          
-    save_area = bytearray(18*4).set_address_size(31)
+    save_area = bytearray_set_address_size(bytearray(18*4), 31)
 
     call_args = bytearray(5*8)
     struct.pack_into('QQQQQ', call_args, 0,
-                     get_IEFDB476(), 0, emCallPlist.buffer_address(), save_area.buffer_address(), os.SYSTEM_CALL__CALL31)
+                     get_IEFDB476(), 0, bytearray_buffer_address(emCallPlist), bytearray_buffer_address(save_area), SYSTEM_CALL__CALL31)
 
-    os.zos_system_call(call_args)
+    zos_system_call(call_args)
     IEFDB476_rc = struct.unpack_from('Q', call_args, 0)[0]
     if verbose:
         print("IEFDB476_rc=%X" % IEFDB476_rc)
@@ -176,7 +184,7 @@ def retrieve_dynalloc_messages(message_function, verbName, keyword_definitions, 
         if verbose:
             print('message_length=%d' % message_length)
         message_text = emMessages[256*i+4 : 256*i+4+ message_length]
-        message = str.rstrip(codecs.decode(message_text, 'cp1047_oe'))
+        message = str.rstrip(codecs.decode(message_text, cp1047_oe))
         message_function(message)
 
     if s99error == 0x035C: # Invalid PARM specified in text unit, with corresponding message IKJ56231I
@@ -190,7 +198,7 @@ def dynallocInternal(verb, text_unit_mapping, flags1=0, flags2=0,
     text_unit_array_size = process_text_units(text_unit_mapping, keyword_definitions, None, verbose=verbose)
     if verbose:
         print("test_unit_array_size = %r" % text_unit_array_size)
-    text_unit_array = bytearray(text_unit_array_size).set_address_size(31)
+    text_unit_array = bytearray_set_address_size(bytearray(text_unit_array_size), 31)
     process_text_units(text_unit_mapping, keyword_definitions, text_unit_array, verbose=verbose)
     if verbose:
         show_text_units(text_unit_array)
@@ -199,24 +207,24 @@ def dynallocInternal(verb, text_unit_mapping, flags1=0, flags2=0,
     message_block_subpool = 4
     message_options = 0x48 # return message to caller + specified subpool
     
-    svc99rbx = bytearray(36).set_address_size(31)
+    svc99rbx = bytearray_set_address_size(bytearray(36), 31)
     struct.pack_into('BBBBBBBBBBB', svc99rbx, 0,
                          0xE2, 0xF9, 0xF9, 0xD9, 0xC2, 0xE7, 1, #'S99RBX', version
                          message_options, message_block_subpool, 8, message_severity_level)
 
-    svc99rb = bytearray(20).set_address_size(31)
+    svc99rb = bytearray_set_address_size(bytearray(20), 31)
     struct.pack_into('BBHHHIII', svc99rb, 0,
-                     20, verb_codes[verb], flags1, 0, 0, text_unit_array.buffer_address(), svc99rbx.buffer_address(), flags2)
+                     20, verb_codes[verb], flags1, 0, 0, bytearray_buffer_address(text_unit_array), bytearray_buffer_address(svc99rbx), flags2)
 
-    svc99plist = bytearray(4).set_address_size(31)
+    svc99plist = bytearray_set_address_size(bytearray(4), 31)
     struct.pack_into('I', svc99plist, 0,
-                     0x80000000 | svc99rb.buffer_address())
+                     0x80000000 | bytearray_buffer_address(svc99rb))
 
     svc_args = bytearray(5*8)
     struct.pack_into('QQQQQ', svc_args, 0,
-                     0, 0, svc99plist.buffer_address(), 99, os.SYSTEM_CALL__SVC)
+                     0, 0, bytearray_buffer_address(svc99plist), 99, SYSTEM_CALL__SVC)
 
-    os.zos_system_call(svc_args)
+    zos_system_call(svc_args)
     svc99_rc = struct.unpack_from('L', svc_args, 0)[0]
     
     if verbose:
@@ -258,7 +266,7 @@ def dyninformation(text_unit_mapping, flags1=0, flags2=0,
                             verbose=verbose, message_level=message_level, message_function=message_function)
 
 def show_text_units(text_unit_array):
-    text_unit_array_address = text_unit_array.buffer_address()
+    text_unit_array_address = bytearray_buffer_address(text_unit_array)
     end = False
     tu_count = 0
     while not end:

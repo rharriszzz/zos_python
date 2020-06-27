@@ -1,4 +1,14 @@
-import ctypes, struct, os, sys, codecs
+from zos._bytearray import *
+from zos._system_call import *
+
+import codecs
+cp1047_oe = 'cp1047_oe'
+try:
+    codecs.lookup(cp1047_oe)
+except LookupError:
+    cp1047_oe = 'cp1047'
+
+import ctypes, struct, os, sys
              
 def MEM4(address, offset):
     return ctypes.c_int.from_address(address + offset).value
@@ -13,29 +23,33 @@ class get_thread_entity(object):
         self.thid = thid
         self.pgtha = self.make_pgtha(outputs, pid=pid, thid=thid,
                                      asid=asid, loginname=loginname)
+        pgtha = self.pgtha
         self.pgthb = self.make_pgthb()
+        pgthb = self.pgthb
         self.BPX1GTH_args = bytearray(7*8 + 2*8 + 5*4)
-        struct.pack_into('QQQQQQQ' 'QQ' 'IIIII', self.BPX1GTH_args, 0,
-                         self.BPX1GTH_args.buffer_address()+9*8+0*4, self.BPX1GTH_args.buffer_address()+7*8, 
-                         self.BPX1GTH_args.buffer_address()+9*8+1*4, self.BPX1GTH_args.buffer_address()+8*8,
-                         self.BPX1GTH_args.buffer_address()+9*8+2*4,
-                         self.BPX1GTH_args.buffer_address()+9*8+3*4,
-                         self.BPX1GTH_args.buffer_address()+9*8+4*4,
-                         self.pgtha.buffer_address(), self.pgthb.buffer_address(),
-                         len(self.pgtha), len(self.pgthb), 0, 0, 0)
+        BPX1GTH_args = self.BPX1GTH_args
+        struct.pack_into('QQQQQQQ' 'QQ' 'IIIII', BPX1GTH_args, 0,
+                         bytearray_buffer_address(BPX1GTH_args)+9*8+0*4, bytearray_buffer_address(BPX1GTH_args)+7*8, 
+                         bytearray_buffer_address(BPX1GTH_args)+9*8+1*4, bytearray_buffer_address(BPX1GTH_args)+8*8,
+                         bytearray_buffer_address(BPX1GTH_args)+9*8+2*4,
+                         bytearray_buffer_address(BPX1GTH_args)+9*8+3*4,
+                         bytearray_buffer_address(BPX1GTH_args)+9*8+4*4,
+                         bytearray_buffer_address(pgtha), bytearray_buffer_address(pgthb),
+                         len(pgtha), len(pgthb), 0, 0, 0)
         self.call_args = bytearray(5*8)
     
     def __iter__(self):
         return self
     
     def __next__(self):
-        rc = struct.unpack_from('i', self.BPX1GTH_args, 9*8+2*4)[0]
+        BPX1GTH_args = self.BPX1GTH_args
+        rc = struct.unpack_from('i', BPX1GTH_args, 9*8+2*4)[0]
         if rc == -1:
             raise StopIteration()
         struct.pack_into('QQQQQ', self.call_args, 0,
-                         BPX1GTH_addr, 0, self.BPX1GTH_args.buffer_address(), 0, os.SYSTEM_CALL__CALL)
-        os.zos_system_call(self.call_args)
-        rc = struct.unpack_from('I', self.BPX1GTH_args, 9*8+2*4)[0]
+                         BPX1GTH_addr, 0, bytearray_buffer_address(BPX1GTH_args), 0, SYSTEM_CALL__CALL)
+        zos_system_call(self.call_args)
+        rc = struct.unpack_from('I', BPX1GTH_args, 9*8+2*4)[0]
         if rc == -1:
             raise StopIteration()
         self.move_next_from_pgthb_to_pgtha()

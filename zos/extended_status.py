@@ -1,4 +1,12 @@
+from zos._bytearray import *
+from zos._system_call import *
+
 import codecs
+cp1047_oe = 'cp1047_oe'
+try:
+    codecs.lookup(cp1047_oe)
+except LookupError:
+    cp1047_oe = 'cp1047'
 import ctypes
 import os
 import struct
@@ -93,10 +101,10 @@ def bit_names_name_from_list_fn(bit_to_name_list, byte_count):
     return decode_bits
 
 def convert_from_ebcdic(x):
-    return codecs.decode(x, 'cp1047_oe').rstrip()
+    return codecs.decode(x, cp1047_oe).rstrip()
 
 def convert_from_ebcdic_for_CHARS(x):
-    s = codecs.decode(x, 'cp1047_oe')
+    s = codecs.decode(x, cp1047_oe)
     return (s[0:4].rstrip(), s[4:8].rstrip(), s[8:12].rstrip(), s[12:16].rstrip())
 
 # F time hundredths of seconds since midnight; date 0cyydddF
@@ -386,43 +394,47 @@ class extended_status:
     verbose = False
     ssreq_fn = MEM4(MEM4(MEM4(0,0x10),0x128),0x14)
     ssob_and_stat_len = 0x23C # version 10
-    ssob_and_stat = bytearray(ssob_and_stat_len).set_address_size(31)
-    arglist = bytearray(4).set_address_size(31)
-    struct.pack_into('=I', arglist, 0, ssob_and_stat.buffer_address())
+    ssob_and_stat = bytearray_set_address_size(bytearray(ssob_and_stat_len), 31)
+    arglist = bytearray_set_address_size(bytearray(4), 31)
+    struct.pack_into('=I', arglist, 0, bytearray_buffer_address(ssob_and_stat))
     struct.pack_into('=4sHHI4xI', ssob_and_stat, 0,
-                    codecs.encode("{:4s}".format("SSOB"), encoding='cp1047_oe'), # E2E2D6C2
-                    0x1C, 80, 0, ssob_and_stat.buffer_address()+0x20) # 0x1C is the SSOB length; 80 is extended status
+                    codecs.encode("{:4s}".format("SSOB"), encoding=cp1047_oe), # E2E2D6C2
+                    0x1C, 80, 0, bytearray_buffer_address(ssob_and_stat)+0x20) # 0x1C is the SSOB length; 80 is extended status
     struct.pack_into('H4sBB5x', ssob_and_stat, 0x20,
                      0x21C, # version 10 length
-                     codecs.encode("{:4s}".format("STAT"), encoding='cp1047_oe'), # E2E3C1E3
+                     codecs.encode("{:4s}".format("STAT"), encoding=cp1047_oe), # E2E3C1E3
                      10, 0) # version 10, modifier 0
     struct.pack_into('B', ssob_and_stat, 0xDA, # STATOPT1
                      0x04) # Returned areas may be obtained in 64-bit storage
-    save_area = bytearray(18*4).set_address_size(31)
+    save_area = bytearray_set_address_size(bytearray(18*4), 31)
     ssreq = bytearray(5*8)
 
     def call(self, request_type, criteria={}, requested_fields=None):
         self.requested_fields = requested_fields
+        ssob_and_stat = self.ssob_and_stat
+        arglist = self.arglist
+        save_area = self.save_area
+        ssreq = self.ssreq
         request_types = ('job_terse', 'job_verbose', 'close', 'sysout_terse', 'sysout_verbose', 'data_set_list')
-        struct.pack_into('B', self.ssob_and_stat, 0x2C,
+        struct.pack_into('B', ssob_and_stat, 0x2C,
                          request_types.index(request_type)+1)
         for name, value in criteria.items():
             if not value:
                 continue
             struct_fmt, position_list, bit_position, bit = criteria_fields[name]
             if isinstance(value, str):
-                value = codecs.encode(("{:%ds}" % int(struct_fmt[:-1])).format(value), encoding='cp1047_oe')
+                value = codecs.encode(("{:%ds}" % int(struct_fmt[:-1])).format(value), encoding=cp1047_oe)
             if isinstance(position_list, tuple):
                 for position in position_list:
-                    struct.pack_into(struct_fmt, self.ssob_and_stat, position, value)
+                    struct.pack_into(struct_fmt, ssob_and_stat, position, value)
             else:
                 position = position_list
-                struct.pack_into(struct_fmt, self.ssob_and_stat, position, value)
-            self.ssob_and_stat[bit_position] |= bit
-        struct.pack_into('QQQQQ', self.ssreq, 0,
-                         self.ssreq_fn, 0, self.arglist.buffer_address(),
-                         self.save_area.buffer_address(), os.SYSTEM_CALL__CALL31)
-        os.zos_system_call(self.ssreq)
+                struct.pack_into(struct_fmt, ssob_and_stat, position, value)
+            ssob_and_stat[bit_position] |= bit
+        struct.pack_into('QQQQQ', ssreq, 0,
+                         ssreq_fn, 0, bytearray_buffer_address(arglist),
+                         bytearray_buffer_address(save_area), SYSTEM_CALL__CALL31)
+        zos_system_call(ssreq)
         self.ssi_return_code = struct.unpack_from('=4xI', self.ssreq, 0)[0]
         if self.ssi_return_code != 0:
             error_index = self.ssi_return_code / 4 - 1
@@ -433,7 +445,7 @@ class extended_status:
                               "The SSOB or SSIB have invalid lengths or formats",
                               "The SSI has not been initialized.")
             raise Exception(error_messages[errior_index])
-        self.subsystem_return_code = struct.unpack_from('=I', self.ssob_and_stat, 0x0C)[0] # SSOBRETN
+        self.subsystem_return_code = struct.unpack_from('=I', ssob_and_stat, 0x0C)[0] # SSOBRETN
         self.version, self.reason, self.reason2 = struct.unpack_from('=BxBB', self.ssob_and_stat, 0x28) # STATVER, STATREAS, STATREA2
         if self.ssi_return_code == 4:
             raise Exception("Invalid search arguments")
@@ -441,7 +453,7 @@ class extended_status:
             raise Exception("Logic error, reason=0x%X" % self.reason)
         elif self.ssi_return_code == 12:
             raise Exception("Unsupported call type")
-        #print(dump_region(self.ssob_and_stat.buffer_address(), len(self.ssob_and_stat)))
+        #print(dump_region(bytearray_buffer_address(ssob_and_stat), len(self.ssob_and_stat)))
         return None
 
     def job_elements(self):
@@ -454,7 +466,7 @@ class extended_status:
                 print("jq64=%r, jqe=%X" % (self.jq64, self.jqe_address))
             while self.jqe_address:
                 self.subsystem_name = codecs.decode((ctypes.c_char*4)\
-                                                    .from_address(self.jqe_address + 0x10).value, 'cp1047_oe')
+                                                    .from_address(self.jqe_address + 0x10).value, cp1047_oe)
                 job = {"subsystem": self.subsystem_name}
                 job = self.parse_element_information(self.jqe_address, 'job_terse', job)
                 self.job_verbose_address = (ctypes.c_ulong if self.jq64 else ctypes.c_uint)\
@@ -523,20 +535,20 @@ class extended_status:
                         value = convert(ctype.from_address(address + offset).value)
                     else:
                         value = bytearray(size)
-                        ctypes.memmove(value.buffer_address(), address + offset, size)
+                        ctypes.memmove(bytearray_buffer_address(value), address + offset, size)
                     if value:
                         result[name] = value
         return result
 
 def allocate_spool_dataset(data_set_name=None, client_token=None, subsystem=None):
-    client_token.set_address_size(31)
+    bytearray_set_address_size(client_token, 31)
     rc, results = dynalloc({
         "DSNAME":data_set_name,
         "STATUS":"SHR",
         "UNAUTHORIZED_SUBSYSTER_REQUEST":subsystem,
-        "BROWSE_TOKEN":(codecs.encode("BTKN", encoding='cp1047_oe'), 
+        "BROWSE_TOKEN":(codecs.encode("BTKN", encoding=cp1047_oe), 
                         bytes((3, 3)),
-                        client_token.buffer_address().to_bytes(4, sys.byteorder) if client_token else 0,
+                        bytearray_buffer_address(client_token).to_bytes(4, sys.byteorder) if client_token else 0,
                         0, 0, 0, 0),
         "CLOSE":None,
         "DDNAME_RETURN":None})
@@ -545,7 +557,7 @@ def allocate_spool_dataset(data_set_name=None, client_token=None, subsystem=None
     return results["DDNAME_RETURN"]
 
 letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$@&*()?/<>/.+-=_ '
-letters_ebcdic = codecs.encode(letters, encoding='cp1047_oe')
+letters_ebcdic = codecs.encode(letters, encoding=cp1047_oe)
 decode_ebcdic = list(' ')*256
 for c, e in zip(letters, letters_ebcdic):
     decode_ebcdic[e] = c
