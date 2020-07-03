@@ -1,0 +1,189 @@
+#!/bin/sh
+
+# https://www.ibm.com/products/open-enterprise-python-zos/pricing
+# click on "Try Free Edition"
+
+# user's guide
+# https://www.ibm.com/support/knowledgecenter/SSCH7P_3.8.0/python.pdf?view=kc
+
+cd /u/pdharr/pyz
+# this version of make from Rocket is needed only to build jpeg, for Pillow, for bokeh
+ROCKET_PORTED_TOOLS=/rsusr/ported/bin/
+
+clean='no'
+touch install.log
+chtag -t -c 819 install.log
+exec > install.log 2>&1
+set -x
+
+export PATH=/bin
+
+# === /u/pdharr/pyz/pyz ===
+export PYZ=/u/pdharr/pyz/usr/lpp/IBM/cyp/v3r8/pyz
+export PATH=$PYZ/bin:$PATH
+export LIBPATH=$PYZ/lib:$LIBPATH
+export CC=/bin/xlclang
+export CXX=/bin/xlclang++
+# these are the options that python uses
+options='-fno-strict-aliasing -O3 -qarch=10 -qlanglvl=extc99 -q64 -qexportall -qascii -qstrict -qnocsect -qgonumber -qenum=int'
+defines='-DNDEBUG -D_XOPEN_SOURCE_EXTENDED -D_UNIX03_THREADS -D_POSIX_THREADS -D_OPEN_SYS_FILE_EXT'
+export FLAGS="$options $defines"
+# === end ===
+
+if [[ "$clean" == "yes" ]]; then
+    rm -rf usr
+    pax -z -r -f /u/pdharr/HAMB380.runnable.pax.Z
+fi
+
+# I can't get /bin/patch to work, so let's use sed
+
+# fix: FSUM3010 Specify a file with the correct suffix (.C, .hh, .i, .c, .i, .s, .o, .x, .p, .I, or .a), or a corresponding data set name, instead of -obuild/lib.os390-27.00-8561-3.8/zmq/libzmq.so.
+f=usr/lpp/IBM/cyp/v3r8/pyz/lib/python3.8/distutils/unixccompiler.py
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+sed \
+    -e '/ld_args = (objects + self.objects +/{' \
+    -e 'N' \
+    -e 'c\
+\            ld_args = ([opt for opt in lib_opts if opt.startswith("-L")] +\
+\                       ["-o", output_filename] + objects + self.objects +\
+\                       [opt for opt in lib_opts if not opt.startswith("-L")])' \
+    -e '}' \
+    -e '/ld_args.extend(\["-Wl,dll", new_pythonx\])/{' \
+    -e 'N' \
+    -e 'c\
+\                    ld_args.append(new_pythonx)\
+\                    ld_args[0:0] = ["-Wl,dll", "-q64"]' \
+    -e '}' \
+    $f.save > $f
+
+pip3 install --verbose wheel
+pip3 download --verbose pyzmq
+if [[ -d pyzmq ]]; then
+    rm -rf pyzmq
+fi
+python3 -m tarfile -e pyzmq-*.gz pyzmq
+chtag -R -t -c 819 pyzmq
+
+f=pyzmq/pyzmq-19.0.1/setup.py
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+sed \
+    -e '/libzmq.libraries.append('"'rt'"')/c\
+\                    if not sys.platform.startswith("zos"):\
+\                        libzmq.libraries.append("rt")' \
+    -e '/temp, release/a\
+\    elif sys.platform.startswith("zos"):\
+\        # link against libzmq.x in build dir:\
+\        plat = distutils.util.get_platform()\
+\        lib = "lib.%s-%i.%i" % (plat, sys.version_info[0], sys.version_info[1])\
+\        settings["libraries"].append("zmq")\
+\        settings["runtime_library_dirs"].append(pjoin("build", lib, "zmq"))' \
+    $f.save > $f
+
+f=pyzmq/pyzmq-19.0.1/buildutils/bundle.py
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+/bin/sed \
+  -e '/include_linux-armv/a\
+\            elif sys.platform.startswith("zos"):\
+\                platform_dir = pjoin(HERE, "include_zos")' \
+  $f.save > $f
+f=pyzmq/pyzmq-19.0.1/bundled/zeromq/src/err.hpp
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+/bin/sed \
+  -e '/((analyzer_noreturn))/a\
+#else\
+void zmq_abort (const char *errmsg_);' \
+  $f.save > $f   
+
+cp -r pyzmq/pyzmq-19.0.1/buildutils/include_linux pyzmq/pyzmq-19.0.1/buildutils/include_zos
+f=pyzmq/pyzmq-19.0.1/buildutils/include_zos/platform.hpp
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+sed \
+    -e 's%#define \(HAVE_DECL_SO_PEERCRED\) 1%#define \1 0%' \
+    -e 's%/\* #undef \(ZMQ_IOTHREAD_POLLER_USE_POLL\) \*/%#define \1 1%' \
+    -e 's%#define \(HAVE_CLOCK_GETTIME\) 1%/* #undef \1 */%' \
+    -e 's%#define \(HAVE_FREEIFADDRS\) 1%/* #undef \1 */%' \
+    -e 's%#define \(HAVE_IFADDRS_H\) 1%/* #undef \1 */%' \
+    -e 's%#define \(HAVE_MKDTEMP\) 1%/* #undef \1 */%' \
+    -e 's%#define \(HAVE_POSIX_MEMALIGN\) 1%/* #undef \1 */%' \
+    -e 's%#define \(HAVE_STRNLEN\) 1%/* #undef \1 */%' \
+    -e 's%#define \(ZMQ_HAVE_IFADDRS\) 1%/* #undef \1 */%' \
+    -e 's%#define \(ZMQ_HAVE_LINUX\) 1%/* #undef \1 */%' \
+    -e 's%#define \(ZMQ_HAVE_PTHREAD_SET_AFFINITY\) 1%/* #undef \1 */%' \
+    -e 's%#define \(ZMQ_HAVE_SO_BINDTODEVICE\) 1%/* #undef \1 */%' \
+    -e 's%#define \(ZMQ_HAVE_SO_PEERCRED\) 1%/* #undef \1 */%' \
+    -e 's%#define \(ZMQ_HAVE_TCP_KEEPCNT\) 1%/* #undef \1 */%' \
+    -e 's%#define \(ZMQ_HAVE_TCP_KEEPIDLE\) 1%/* #undef \1 */%' \
+    -e 's%#define \(ZMQ_HAVE_TCP_KEEPINTVL\) 1%/* #undef \1 */%' \
+    -e 's%#define \(ZMQ_HAVE_TIPC\) 1%/* #undef \1 */%' \
+    -e 's%#define \(ZMQ_IOTHREAD_POLLER_USE_EPOLL\) 1%/* #undef \1 */%' \
+    -e '$i\
+#define NI_MAXHOST 1025' \
+  $f.save > $f
+
+pip3 install --verbose ./pyzmq/pyzmq-* --install-option="--zmq=bundled"
+
+pip3 install --verbose notebook
+
+# bokeh needs Pillow which needs zlib and jpeg
+# ==== download, build, and install zlib ====
+python3 -c 'import urllib.request; f="zlib-1.2.11.tar.gz"; urllib.request.urlretrieve("https://zlib.net/"+f, f)'
+python3 -m tarfile -e zlib-*.gz zlib
+chtag -R -t -c 819 zlib
+
+cd zlib/zlib-*
+f=zconf.h.in
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+sed \
+    -e '/MVS/,/#endif/d' \
+    $f.save > $f
+
+# we want to use the same compile options as were used by python
+export CFLAGS="$FLAGS"
+
+env _TAG_REDIR_OUT=TXT _TAG_REDIR_IN=TXT \
+    _CEE_RUNOPTS="FILETAG(AUTOCVT,AUTOTAG)" \
+  /bin/sh \
+  ./configure --prefix $PYZ --static
+
+make install
+
+unset CFLAGS
+
+cd ../..
+# ==== done with zlib ====
+# ==== download, build, and install jpeg ====
+python3 -c 'import urllib.request; f="v9d.tar.gz"; urllib.request.urlretrieve("https://github.com/mackyle/jpeg/archive/"+f, f)'
+mv v9d.tar.gz jpeg.v9d.tar.gz
+python3 -m tarfile -e jpeg.*.gz jpeg
+chtag -R -t -c 819 jpeg
+
+cd jpeg/jpeg-*
+export CFLAGS="$FLAGS"
+
+env _TAG_REDIR_OUT=TXT _TAG_REDIR_IN=TXT \
+    _CEE_RUNOPTS="FILETAG(AUTOCVT,AUTOTAG)" \
+  /bin/sh \
+  ./configure --prefix $PYZ --enable-shared=no
+
+$ROCKET_PORTED_TOOLS/make install
+
+unset CFLAGS
+
+cd ../..
+# ==== done with jpeg ====
+
+pip3 install --verbose pillow
+
+pip3 install --verbose bokeh
