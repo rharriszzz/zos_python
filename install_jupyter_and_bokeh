@@ -3,42 +3,46 @@
 # https://www.ibm.com/products/open-enterprise-python-zos/pricing
 # click on "Try Free Edition"
 
-# user's guide
-# https://www.ibm.com/support/knowledgecenter/SSCH7P_3.8.0/python.pdf?view=kc
+# === edit these lines ===
+PYZ=$HOME/pyz
+PYZ_PAX=$HOME/HAMB380.runnable.pax.Z
 
-cd /u/pdharr/pyz
 # this version of make from Rocket is needed only to build jpeg, for Pillow, for bokeh
-ROCKET_PORTED_TOOLS=/rsusr/ported/bin/
+ROCKET_PORTED_TOOLS_MAKE=/rsusr/ported/bin/make
 
 clean='no'
+# === end of lines to edit ===
+
 touch install.log
 chtag -t -c 819 install.log
 exec > install.log 2>&1
 set -x
 
-export PATH=/bin
+mkdir -p $PYZ
+cd $PYZ
 
-# === /u/pdharr/pyz/pyz ===
-export PYZ=/u/pdharr/pyz/usr/lpp/IBM/cyp/v3r8/pyz
-export PATH=$PYZ/bin:$PATH
-export LIBPATH=$PYZ/lib:$LIBPATH
+export PATH=/bin
+export LIBPATH=/usr/lib
+export PYZ_DIR=usr/lpp/IBM/cyp/v3r8/pyz
+export PYZ_PREFIX=$PYZ/$PYZ_DIR
+export PATH=$PYZ_PREFIX/bin:$PATH
+export LIBPATH=$PYZ_PREFIX/lib:$LIBPATH
+
+if [[ "$clean" == "yes" && -d usr ]]; then
+    rm -rf usr
+fi
+if [[ ! -d usr ]]; then
+    pax -z -r -f $PYZ_PAX
+fi
+
 export CC=/bin/xlclang
 export CXX=/bin/xlclang++
-# these are the options that python uses
-options='-fno-strict-aliasing -O3 -qarch=10 -qlanglvl=extc99 -q64 -qexportall -qascii -qstrict -qnocsect -qgonumber -qenum=int'
-defines='-DNDEBUG -D_XOPEN_SOURCE_EXTENDED -D_UNIX03_THREADS -D_POSIX_THREADS -D_OPEN_SYS_FILE_EXT'
-export FLAGS="$options $defines"
-# === end ===
-
-if [[ "$clean" == "yes" ]]; then
-    rm -rf usr
-    pax -z -r -f /u/pdharr/HAMB380.runnable.pax.Z
-fi
+CFLAGS=`python3 -c 'import sysconfig; print(sysconfig.get_config_var("CFLAGS"))'`
 
 # I can't get /bin/patch to work, so let's use sed
 
 # fix: FSUM3010 Specify a file with the correct suffix (.C, .hh, .i, .c, .i, .s, .o, .x, .p, .I, or .a), or a corresponding data set name, instead of -obuild/lib.os390-27.00-8561-3.8/zmq/libzmq.so.
-f=usr/lpp/IBM/cyp/v3r8/pyz/lib/python3.8/distutils/unixccompiler.py
+f=$PYZ_DIR/lib/python3.8/distutils/unixccompiler.py
 if [[ ! -f $f.save ]]; then
     cp $f $f.save
 fi
@@ -149,17 +153,12 @@ sed \
     -e '/MVS/,/#endif/d' \
     $f.save > $f
 
-# we want to use the same compile options as were used by python
-export CFLAGS="$FLAGS"
-
 env _TAG_REDIR_OUT=TXT _TAG_REDIR_IN=TXT \
     _CEE_RUNOPTS="FILETAG(AUTOCVT,AUTOTAG)" \
   /bin/sh \
-  ./configure --prefix $PYZ --static
+  ./configure --prefix $PYZ_PREFIX --static
 
 make install
-
-unset CFLAGS
 
 cd ../..
 # ==== done with zlib ====
@@ -170,16 +169,13 @@ python3 -m tarfile -e jpeg.*.gz jpeg
 chtag -R -t -c 819 jpeg
 
 cd jpeg/jpeg-*
-export CFLAGS="$FLAGS"
 
 env _TAG_REDIR_OUT=TXT _TAG_REDIR_IN=TXT \
     _CEE_RUNOPTS="FILETAG(AUTOCVT,AUTOTAG)" \
   /bin/sh \
-  ./configure --prefix $PYZ --enable-shared=no
+  ./configure --prefix $PYZ_PREFIX --enable-shared=no
 
-$ROCKET_PORTED_TOOLS/make install
-
-unset CFLAGS
+$ROCKET_PORTED_TOOLS_MAKE install
 
 cd ../..
 # ==== done with jpeg ====

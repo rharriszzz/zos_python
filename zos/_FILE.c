@@ -95,8 +95,8 @@ FILE___init__(PyObject *self, PyObject *args, PyObject *kwargs)
       Py_END_ALLOW_THREADS
     }
     PyObject_SetAttrString(self, "file", PyLong_FromLong((long)file));
-    PyObject_SetAttrString(self, "readable", PyBool_FromLong(readable));
-    PyObject_SetAttrString(self, "writable", PyBool_FromLong(writable));
+    PyObject_SetAttrString(self, "is_readable", PyBool_FromLong(readable));
+    PyObject_SetAttrString(self, "is_writable", PyBool_FromLong(writable));
     Py_RETURN_NONE;
 }
 
@@ -168,6 +168,8 @@ FILE_fread(PyObject *self, PyObject *args) // METH_VARARGS
   PyBuffer_Release(&buffer);
   return PyLong_FromLong(result);
 }
+
+//readinto readall read
 
 PyObject *
 FILE_fwrite(PyObject *self, PyObject *args) // METH_VARARGS
