@@ -3,6 +3,12 @@
 # https://www.ibm.com/products/open-enterprise-python-zos/pricing
 # click on "Try Free Edition"
 
+if [[ "$ENVIRONMENT_IS_CLEAN" != "YES" ]]; then
+    keep="HOME=$HOME LOGNAME=$LOGNAME USER=$USER"
+    keep="$keep _BPXK_AUTOCVT=ON ENVIRONMENT_IS_CLEAN=YES PATH=$PATH"
+    exec /bin/env -i $keep "$0" "$@"
+fi
+
 # === edit these lines ===
 PYZ=$HOME/pyz
 PYZ_PAX=$HOME/HAMB380.runnable.pax.Z
@@ -10,7 +16,7 @@ PYZ_PAX=$HOME/HAMB380.runnable.pax.Z
 # this version of make from Rocket is needed only to build jpeg, for Pillow, for bokeh
 ROCKET_PORTED_TOOLS_MAKE=/rsusr/ported/bin/make
 
-clean='no'
+clean='yes'
 # === end of lines to edit ===
 
 touch install.log
@@ -27,6 +33,7 @@ export PYZ_DIR=usr/lpp/IBM/cyp/v3r8/pyz
 export PYZ_PREFIX=$PYZ/$PYZ_DIR
 export PATH=$PYZ_PREFIX/bin:$PATH
 export LIBPATH=$PYZ_PREFIX/lib:$LIBPATH
+export _BPXK_AUTOCVT=ON
 
 if [[ "$clean" == "yes" && -d usr ]]; then
     rm -rf usr
@@ -37,7 +44,12 @@ fi
 
 export CC=/bin/xlclang
 export CXX=/bin/xlclang++
-CFLAGS=`python3 -c 'import sysconfig; print(sysconfig.get_config_var("CFLAGS"))'`
+# -W'c,DLL' is not needed with xlclang (or with xlc -q64)
+CFLAGS=`python3 -c 'import sysconfig; print(sysconfig.get_config_var("CFLAGS"))'  | sed -e "s/-W'c,DLL' //"`
+export CFLAGS
+
+pip3 install --verbose certifi
+export SSL_CERT_FILE=$PYZ_DIR/lib/python3.8/site-packages/certifi/cacert.pem
 
 # I can't get /bin/patch to work, so let's use sed
 
@@ -150,6 +162,10 @@ pip3 install --verbose notebook
 
 # bokeh needs Pillow which needs zlib and jpeg
 # ==== download, build, and install zlib ====
+if [[ -d zlib ]]; then
+    rm -rf zlib
+fi
+
 python3 -c 'import urllib.request; f="zlib-1.2.11.tar.gz"; urllib.request.urlretrieve("https://zlib.net/"+f, f)'
 python3 -m tarfile -e zlib-*.gz zlib
 chtag -R -t -c 819 zlib
@@ -173,6 +189,9 @@ make install
 cd ../..
 # ==== done with zlib ====
 # ==== download, build, and install jpeg ====
+if [[ -d jpeg ]]; then
+    rm -rf jpeg
+fi
 python3 -c 'import urllib.request; f="v9d.tar.gz"; urllib.request.urlretrieve("https://github.com/mackyle/jpeg/archive/"+f, f)'
 mv v9d.tar.gz jpeg.v9d.tar.gz
 python3 -m tarfile -e jpeg.*.gz jpeg
@@ -185,7 +204,7 @@ env _TAG_REDIR_OUT=TXT _TAG_REDIR_IN=TXT \
   /bin/sh \
   ./configure --prefix $PYZ_PREFIX --enable-shared=no
 
-$ROCKET_PORTED_TOOLS_MAKE install
+V=1 $ROCKET_PORTED_TOOLS_MAKE install
 
 cd ../..
 # ==== done with jpeg ====
