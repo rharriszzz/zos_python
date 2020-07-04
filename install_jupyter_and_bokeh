@@ -41,26 +41,36 @@ CFLAGS=`python3 -c 'import sysconfig; print(sysconfig.get_config_var("CFLAGS"))'
 
 # I can't get /bin/patch to work, so let's use sed
 
-# fix: FSUM3010 Specify a file with the correct suffix (.C, .hh, .i, .c, .i, .s, .o, .x, .p, .I, or .a), or a corresponding data set name, instead of -obuild/lib.os390-27.00-8561-3.8/zmq/libzmq.so.
-f=$PYZ_DIR/lib/python3.8/distutils/unixccompiler.py
-if [[ ! -f $f.save ]]; then
-    cp $f $f.save
-fi
-sed \
-    -e '/ld_args = (objects + self.objects +/{' \
-    -e 'N' \
-    -e 'c\
+if [[ 1 == 1 ]]; then
+    # https://developer.ibm.com/node/2017/04/09/working-with-modules-and-the-node-js-technical-preview-for-zos/
+    export _C89_CCMODE=1
+    export _CC_CCMODE=1
+    export _CXX_CCMODE=1
+else
+    unset _C89_CCMODE
+    unset _CC_CCMODE
+    unset _CXX_CCMODE
+    # fix: FSUM3010 Specify a file with the correct suffix (.C, .hh, .i, .c, .i, .s, .o, .x, .p, .I, or .a), or a corresponding data set name, instead of -obuild/lib.os390-27.00-8561-3.8/zmq/libzmq.so.
+    f=$PYZ_DIR/lib/python3.8/distutils/unixccompiler.py
+    if [[ ! -f $f.save ]]; then
+        cp $f $f.save
+    fi
+    sed \
+        -e '/ld_args = (objects + self.objects +/{' \
+        -e 'N' \
+        -e 'c\
 \            ld_args = ([opt for opt in lib_opts if opt.startswith("-L")] +\
 \                       ["-o", output_filename] + objects + self.objects +\
 \                       [opt for opt in lib_opts if not opt.startswith("-L")])' \
-    -e '}' \
-    -e '/ld_args.extend(\["-Wl,dll", new_pythonx\])/{' \
-    -e 'N' \
-    -e 'c\
+        -e '}' \
+        -e '/ld_args.extend(\["-Wl,dll", new_pythonx\])/{' \
+        -e 'N' \
+        -e 'c\
 \                    ld_args.append(new_pythonx)\
 \                    ld_args[0:0] = ["-Wl,dll", "-q64"]' \
-    -e '}' \
-    $f.save > $f
+        -e '}' \
+        $f.save > $f
+fi
 
 pip3 install --verbose wheel
 pip3 download --verbose pyzmq
