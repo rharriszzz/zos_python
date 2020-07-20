@@ -11,6 +11,11 @@ c="/bin/xlclang $o -I$i"
 
 l="$c -Wl,dll"
 
+# note that IzODA anaconda puts the .x file next to the .so file
+# At the time I tested this stuff, I had not yet found where pyz keeps its .x file
+# Once I write a setup.py, we will not need the next few lines
+
+# this is how you can create a .x file from a .so file...
 pso=libpython3.8.so
 px=libpython3.8.x
 nm $e/lib/$pso | grep ' T ' | grep -v '(unnamed)' | sed -e 's/^.* T \(.*\)$/ IMPORT CODE64,'"'$pso','\1'/" > imports
