@@ -1,0 +1,49 @@
+# ==== download, build, and install libzmq ====
+if [[ -d libzmq ]]; then
+    rm -rf libzmq
+fi
+
+python3 -c 'import urllib.request; v="4.3.2"; f="zeromq-"+v+".tar.gz"; urllib.request.urlretrieve("https://github.com/zeromq/libzmq/releases/download/v"+v+"/"+f, f)'
+python3 -m tarfile -e zeromq-*.gz libzmq
+chtag -R -t -c 819 libzmq
+
+cd libzmq/zeromq-*
+f=src/err.hpp
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+/bin/sed \
+  -e '/((analyzer_noreturn))/a\
+#else\
+void zmq_abort (const char *errmsg_);' \
+  $f.save > $f   
+
+f=configure
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+sed \
+    -e '/\*cygwin\*)/i\
+\    openedition)\
+\	cat >>confdefs.h <<_ACEOF\
+#define HAVE_LIBRT 1\
+_ACEOF\
+\	;;' \
+    $f.save > $f
+
+env _TAG_REDIR_OUT=TXT _TAG_REDIR_IN=TXT \
+    _CEE_RUNOPTS="FILETAG(AUTOCVT,AUTOTAG)" \
+  /bin/sh \
+  ./configure --prefix $PYZ_PREFIX --enable-shared=no --disable-Werror
+
+f=src/platform.hpp
+cp $f $f.save
+sed \
+    -e '$i\
+#define NI_MAXHOST 1025' \
+  $f.save > $f
+
+V=1 $ROCKET_PORTED_TOOLS_MAKE install
+
+cd ../..
+# ==== done with libzmq ====

@@ -1,0 +1,18 @@
+# === download, build, and install pyzmq ===
+
+if [[ -d pyzmq ]]; then
+    rm -rf pyzmq
+fi
+pip3 download --verbose pyzmq
+python3 -m tarfile -e pyzmq-*.gz pyzmq
+chtag -R -t -c 819 pyzmq
+
+export CC=/bin/xlclang++
+export LDSHARED=/bin/xlclang++
+
+pip3 install --verbose ./pyzmq/pyzmq-* 
+
+export CC=/bin/xlc
+export LDSHARED=/bin/xlc
+
+# === done building pyzmq ===

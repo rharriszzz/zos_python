@@ -1,0 +1,114 @@
+# ==== download, build, and install pkg-config ====
+if [[ -d pkg-config ]]; then
+    rm -rf pkg-config
+fi
+
+python3 -c 'import urllib.request; f="distrotech-pkg-config.tar.gz"; urllib.request.urlretrieve("https://github.com/Distrotech/pkg-config/archive/"+f, f)'
+python3 -m tarfile -e *pkg-config*.gz pkg-config
+chtag -R -t -c 819 pkg-config
+
+cd pkg-config/pkg-config-*
+
+CFLAGS_SAVE="$CFLAGS"
+CFLAGS=`echo $CFLAGS | sed -e 's/ -qenum=int/& -D_OPEN_SYS_SOCK_IPV6/'`
+export CFLAGS
+CPPFLAGS="$CFLAGS"
+export CPPFLAGS
+
+# these two functions are not declared, but /bin/xlclang compiles and links them just fine
+f=glib/configure
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+sed \
+    -e 's/newlocale uselocale//' \
+  $f.save > $f
+
+env _TAG_REDIR_OUT=TXT _TAG_REDIR_IN=TXT \
+    _CEE_RUNOPTS="FILETAG(AUTOCVT,AUTOTAG)" \
+  /bin/sh \
+  ./configure --prefix $PYZ_PREFIX --with-internal-glib
+
+f=glib/glib/glib-init.c
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+sed \
+    -e '/^static void$/{' \
+    -e 'N' \
+    -e '/glib_init/s/static void/void/' \
+    -e '}' \
+    -e '/missing constructor support/c\
+#ifndef __MVS__\
+# error Your platform/compiler is missing constructor support\
+#endif' \
+  $f.save > $f
+
+f=glib/glib/glib.h
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+sed \
+    -e '/#ifndef G_DISABLE_DEPRECATED/i\
+#ifdef __MVS__\
+extern void glib_init(void);\
+#endif' \
+  $f.save > $f
+
+f=glib/glib/gmain.c
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+sed \
+    -e '/#ifdef HAVE_SIG_ATOMIC_T/i\
+#ifdef __MVS__\
+#define NSIG 40\
+#endif' \
+  $f.save > $f
+
+f=main.c
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+sed \
+    -e '/main (int argc, char \*\*argv)/{'\
+    -e 'N' \
+    -e 'a\
+#ifdef __MVS__\
+\  glib_init();\
+#endif' \
+    -e '}' \
+  $f.save > $f
+
+f=glib/glib/gutils.c
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+sed \
+    -e '/pw_gecos/,/}/c\
+\	/* Deleted code using pw_gecos, since it it is not supported on MVS */' \
+  $f.save > $f
+
+f=glib/glib/gtimer.c
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+sed \
+    -e '/Sleep/{' \
+    -e 'N' \
+    -e 'c\
+\  Sleep (microseconds / 1000);\
+#elif defined(__MVS__)\
+\   usleep(microseconds);\
+#else' \
+    -e '}' \
+  $f.save > $f
+
+V=1 $ROCKET_PORTED_TOOLS_MAKE install
+
+CFLAGS="$CFLAGS_SAVE"
+export CFLAGS
+unset CPPFLAGS
+
+cd ../..
+# ==== done with pkg-config ====

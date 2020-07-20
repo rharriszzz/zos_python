@@ -1,0 +1,20 @@
+# ==== download, build, and install jpeg ====
+if [[ -d jpeg ]]; then
+    rm -rf jpeg
+fi
+python3 -c 'import urllib.request; f="v9d.tar.gz"; urllib.request.urlretrieve("https://github.com/mackyle/jpeg/archive/"+f, f)'
+mv v9d.tar.gz jpeg.v9d.tar.gz
+python3 -m tarfile -e jpeg.*.gz jpeg
+chtag -R -t -c 819 jpeg
+
+cd jpeg/jpeg-*
+
+env _TAG_REDIR_OUT=TXT _TAG_REDIR_IN=TXT \
+    _CEE_RUNOPTS="FILETAG(AUTOCVT,AUTOTAG)" \
+  /bin/sh \
+  ./configure --prefix $PYZ_PREFIX --enable-shared=no
+
+V=1 $ROCKET_PORTED_TOOLS_MAKE install
+
+cd ../..
+# ==== done with jpeg ====

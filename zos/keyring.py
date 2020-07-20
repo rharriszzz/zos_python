@@ -1,3 +1,4 @@
+
 from zos._system_call import *
 
 import codecs
@@ -6,17 +7,27 @@ try:
     codecs.lookup(cp1047_oe)
 except LookupError:
     cp1047_oe = 'cp1047'
-from ctypes import *
-
-sep = '_'
-
-structure_classes = {}
-
 encoding = cp1047_oe
 try:
     codecs.lookup(encoding)
 except LookupError:
     encoding = 'latin-1'
+
+from ctypes import *
+
+def dump_ctypes_object(obj):
+    size = sizeof(obj)
+    addr = addressof(obj)
+    for offset32 in range(0, size, 32):
+        print("%X %04X  " % (addr+offset32, offset32), end='')
+        for offset4 in range(0, 32, 4):
+            print("%08X " % c_uint.from_address(addr+offset32+offset4).value, end='')
+        print('')
+    print('', flush=True)
+
+sep = '_'
+
+structure_classes = {}
 
 def stringify(value, keyword):
     if isinstance(value, dict):
@@ -243,6 +254,11 @@ def show_fields(obj, path=(), debug=False):
         else:
             print("%r %r" % (path_with_field, value))
 
+try:
+    from os import SYSTEM_CALL__CALL
+except Exception:
+    SYSTEM_CALL__CALL = 0
+
 def CallArgs(base_class, fname, superclass, debug=False):
     if debug:
         print("CallArgs")
@@ -268,7 +284,7 @@ racf_get_data_handle_fields = [ \
     ('db_token', integer()), # reserved
     ('number_of_predicates', integer(initial_value_keyword='number_of_predicates')), # input: 0 or 1
     ('attribute_id', integer(initial_value_keyword='predicate_type', values={'label':1, 'default':2, 'dn':3})), # input
-    ('attribute', length_and_pointer_to_chars(size=32, initial_value_keyword='predicate_value')), # input
+    ('attribute', length_and_pointer_to_chars(size=32, initial_value_keyword='predicate_value', pack=4)), # input
     ]
 
 class racf_get_data_handle(Structure):
@@ -347,7 +363,7 @@ class racf_datalib(Structure):
 
 racf_get_data_fields = [ \
     ('dl', racf_datalib),
-    ('parmlist_version_ptr', POINTER(integer(initial_value=0))), # input, use 1 to specify Cert_status on the DataGetFirst and DataGetNext
+    ('parmlist_version_ptr', POINTER(integer(initial_value=1))), # input, use 1 to specify Cert_status on the DataGetFirst and DataGetNext
     ('parmlist_ptr', POINTER(racf_get_data_parmlist)), # input
     ]
 
@@ -370,19 +386,51 @@ class SafError(Exception):
 
 from threading import local
 
-import zos.load
-loaded_functions = local()
-def load(name):
-    if not hasattr(loaded_functions, name):
-        fn = zos.load.load(name)
-        if fn & 1:
-            fn &= ~1 # remove the amode=64 indicator
-        setattr(loaded_functions, name, fn)
-    return getattr(loaded_functions, name)
+try:
+    import zos.load
+    loaded_functions = local()
+    def load(name):
+        if not hasattr(loaded_functions, name):
+            fn = zos.load.load(name)
+            if fn & 1:
+                fn &= ~1 # remove the amode=64 indicator
+            setattr(loaded_functions, name, fn)
+        return getattr(loaded_functions, name)
+    from os import zos_system_call
+except Exception as e:
+    print(e)
+    def load(name):
+        return 0
+    def zos_system_call(call_args):
+        pass
+
+getdata_error_codes = {
+    (0,0,0):"The service was successful.",
+    (4,0,0):"RACF is not installed.",
+    (8,8,4):"Parameter list error occurred.",
+    (8,8,8):"Not RACF-authorized to use the requested service.",
+    (8,8,12):"Internal error caused recovery to get control.",
+    (8,8,16):"Unable to establish a recovery environment.",
+    (8,8,20):"Requested Function_code not defined.",
+    (8,8,24):"Parm_list_version number not supported.",
+    (8,8,28):"Error in Ring_name length or RACF_userid length.",
+    (8,8,32):"Length error in attribute_length, Record_ID_length, label_length, or CERT_user_ID.",
+    (8,8,36):"dbToken error. The token may be zero, in use by another task, or may have been created by another task.",
+    (8,8,40):"Internal error while validating dbToken.",
+    (8,8,44):"No certificate found.",
+    (8,8,48):"One or more of the following input length fields were too small: Certificate_length, Private_key_length, or Subjects_DN_length.",
+    (8,8,52):"Internal error while obtaining record private key data.",
+    (8,8,56):"Parameter error - Number_predicates, Attribute_ID or Cert_status",
+    (8,8,80):"Internal error while obtaining the key ring or z/OS",
+    (8,8,72):"Caller not in task mode.",
+    (8,8,92):"Other internal error.",
+    (8,8,96):"The linklib (steplib or joblib) concatenation contains a non-APF authorized library.",
+    }
 
 class racf_get_data_with_dependencies_superclass(Structure):
    
-    def __init__(self, racf_userid=None, ring_name=None, predicate_type=None, predicate_value=None):
+    def __init__(self, racf_userid=None, ring_name=None, predicate_type=None, predicate_value=None, debug=False):
+        self.debug = debug
         self.rc = None
         self.fn = load('IRRSDL64')
         initial_value_dict = {'IRRSDL64': self.fn}
@@ -406,7 +454,15 @@ class racf_get_data_with_dependencies_superclass(Structure):
                     codes = (self.args_dl_saf_return_code.value,
                                  self.args_dl_racf_return_code.value,
                                  self.args_dl_racf_reason_code.value)
-                    raise SafError("%d %d %d hex:%X %X %X" % (codes + codes))
+                    if self.debug:
+                        dump_ctypes_object(self)
+                    if codes[0] == 8 and codes[1] == 8 and codes[2] == 44:
+                        break
+                    elif codes[0] == 8 and codes[1] == 12:
+                        reason = "ICSF error return code=%02X reason code=%04X" % (codes[2]>>16, codes[2]&0xFFFF)
+                    else:
+                        reason = getdata_error_codes[codes]
+                    raise SafError("%d %d %d %s" % (codes + (reason,)))
                 yield {'certificate_usage': self.args_parmlist.certificate_usage.value,
                        'default': self.args_parmlist.default.value,
                        'certificate': self.args_parmlist.certificate.value,
@@ -423,6 +479,8 @@ class racf_get_data_with_dependencies_superclass(Structure):
             self.call()
 
     def call(self):
+        if self.debug:
+            print(self.args_dl_function_code.value)
         reset_lengths_of_output_fields(self)
         zos_system_call(self)
         self.rc = self.fn_and_rc.value
@@ -437,32 +495,31 @@ racf_get_data_with_dependencies = class_with_dependencies(racf_get_data_call_arg
 # A virtual key ring is the collection of certificates assigned to a given user ID, including the RACF reserved user IDs for CERTAUTH ('irrcerta' or '*AUTH*') and SITE ('irrsitec' or '*SITE*').
 # A virtual key ring can be specified by coding an asterisk ('*') for the Ring_name with the corresponding RACF_user_ID, such as user01/* or *SITE*/*.
 
-import sys
-from .asn1 import Decoder as Asn1Decoder
-from .dump_asn1 import pretty_print as pretty_print_asn1
+import asn1, sys, dump_asn1
 
 def test_keyring(racf_userid='*SITE*', ring_name='*',
                      predicate_type=None, predicate_value=None,
                      limit=3, debug=False):
     obj = racf_get_data_with_dependencies(racf_userid=racf_userid, ring_name=ring_name,
-                                              predicate_type=predicate_type, predicate_value=predicate_value)
+                                          predicate_type=predicate_type, predicate_value=predicate_value,
+                                          debug=debug)
     if debug:
         show_fields(obj, debug=debug)
         print('')
     for (n, result) in enumerate(obj.values()):
         for key, value in result.items():
             if isinstance(value, bytes) and len(value)>0 and key != 'record_id':
-                decoder = Asn1Decoder()
+                decoder = asn1.Decoder()
                 decoder.start(value)
                 print("%s:" % (key,))
-                pretty_print_asn1(decoder, sys.stdout)
+                dump_asn1.pretty_print(decoder, sys.stdout)
             else:
                 print("%s: %r" % (key, value))
         print('')
         if n >= limit:
             break
 
-# , predicate_type='label', predicate_value='mylabel'
-if __name__ == '__main__':
+if __name__ == "__main__":
+    # , predicate_type='label', predicate_value='mylabel'
     test_keyring(racf_userid='*SITE*', ring_name='*', limit=3)
 

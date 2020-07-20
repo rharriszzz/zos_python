@@ -1,0 +1,27 @@
+# ==== download, build, and install zlib ====
+if [[ -d zlib ]]; then
+    rm -rf zlib
+fi
+
+python3 -c 'import urllib.request; f="zlib-1.2.11.tar.gz"; urllib.request.urlretrieve("https://zlib.net/"+f, f)'
+python3 -m tarfile -e zlib-*.gz zlib
+chtag -R -t -c 819 zlib
+
+cd zlib/zlib-*
+f=zconf.h.in
+if [[ ! -f $f.save ]]; then
+    cp $f $f.save
+fi
+sed \
+    -e '/MVS/,/#endif/d' \
+    $f.save > $f
+
+env _TAG_REDIR_OUT=TXT _TAG_REDIR_IN=TXT \
+    _CEE_RUNOPTS="FILETAG(AUTOCVT,AUTOTAG)" \
+  /bin/sh \
+  ./configure --prefix $PYZ_PREFIX --static
+
+make install
+
+cd ../..
+# ==== done with zlib ====
