@@ -398,11 +398,17 @@ static int name8_length(char *name)
 #include "Python.h"
 
 struct python_info {
-  PyObject *elements;
-  PyObject *asid_obj;
-  char name_buffer[512];
+  PyObject *callback;
+  PyObject *argument;
+  PyObject *asid_selector;
+  char name_buffer[1024];
 };
 
+/*
+PyObject_CallFunction(PyObject *callable, const char *format, ...)
+format = "(OKKIs)"
+addr_begin, addr_end, level, name
+ */
 int call_callbacks(void *info_, void *addr_begin, void *addr_end, char *name, int type)
 {
   struct python_info *info = (struct python_info *)info_;
@@ -421,23 +427,11 @@ int call_callbacks(void *info_, void *addr_begin, void *addr_end, char *name, in
   } else if (type == TYPE_Load) {
     level = 1;
   } else if (type == TYPE_Boundary) {
+    level = 0;
+  } else {
+    level = -1;
   }
-  if (0 && (level > 3)) {
-    fprintf(stdout, "%016lX %016lX %X %s\n", addr_begin, addr_end, level, name);
-    fflush(stdout);
-  }
-  if (level) {
-    PyObject *level_obj = PyLong_FromLong(level);
-    PyObject *name_obj = PyUnicode_DecodeASCII(name, strlen(name), NULL);
-    PyObject *tuple1 = Py_BuildValue("(OkiOO)", info->asid_obj, addr_begin, 1, level_obj, name_obj);
-    PyObject *tuple0 = Py_BuildValue("(OkiOO)", info->asid_obj, addr_end,   0, level_obj, name_obj);
-    PyList_Append(info->elements, tuple1);
-    PyList_Append(info->elements, tuple0);
-    Py_DECREF(tuple1);
-    Py_DECREF(tuple0);
-    Py_DECREF(level_obj);
-    Py_DECREF(name_obj);
-  }
+  PyObject_CallFunction(info->callback, "(OOKKIs)", info->argument, info->asid_selector, addr_begin, addr_end, level, name);
   return 0;
 }
 
@@ -497,21 +491,22 @@ int call_csvinfo_python_callback(void *info_, struct modi_header *header,
 #define MEM2(ptr,offset,name) *(unsigned short *)((char * __ptr32)(ptr)+offset)
 
 PyDoc_STRVAR(get_csv_info__doc__,
-	     "get_csv_info(elements, asid /)\n");
+	     "get_csv_info(callback, argument, asid /)\n");
 
 static PyObject *
 get_csv_info(PyObject *module, PyObject *args)
 {
-  PyObject *elements;
-  PyObject *asid_obj;
-  if (!PyArg_ParseTuple(args, "OO:get_csv_info", &elements, &asid_obj)) {
+  PyObject *callback;
+  PyObject *argument;
+  PyObject *asid_selector;
+  if (!PyArg_ParseTuple(args, "OOO:get_csv_info", &callback, &argument, &asid_selector)) {
     return NULL;
   }
-  struct python_info info_s = {.elements = elements, .asid_obj = asid_obj, .name_buffer = {0}};
+  struct python_info info_s = {.callback = callback, .argument = argument, .asid_selector = asid_selector, .name_buffer = {0}};
   struct python_info *info = &info_s;
 
-  long asid = PyLong_AsLong(asid_obj);
-  if (-1 == asid) {
+  long asid_sel = PyLong_AsLong(asid_selector);
+  if (-1 == asid_sel) {
     int ascb = (int)MEM4(0, 0x224, PSA_to_ASCB);
     unsigned short asid = MEM2(ascb, 0x24, ASCBASID); 
     int lda = (int)MEM4(ascb, 0x30, ASCB_to_LDA);
@@ -519,12 +514,13 @@ get_csv_info(PyObject *module, PyObject *args)
     unsigned int private24_high = private24_low + (unsigned int)MEM4(lda, 0x40, SIZA);
     unsigned int private31_low =  (unsigned int)MEM4(lda, 0x4C, ESTRTA);
     unsigned int private31_high = private31_low + (unsigned int)MEM4(lda, 0x50, ESIZA);
-    call_callbacks(info, (void *)0,              (void *)private24_low,  "common  ", TYPE_Boundary);
-    call_callbacks(info, (void *)private24_low,  (void *)private24_high, "PRIVATE ", TYPE_Boundary);
-    call_callbacks(info, (void *)private24_high, (void *)0x00FFFFFF,     "common  ", TYPE_Boundary);
-    call_callbacks(info, (void *)0x01000000,     (void *)private31_low,  "common  ", TYPE_Boundary);
-    call_callbacks(info, (void *)private31_low,  (void *)private31_high, "EPRV    ", TYPE_Boundary);
-  } else if (0 == asid) {
+    call_callbacks(info, (void *)0,              (void *)0x1FFF,         "psa",        TYPE_Boundary);
+    call_callbacks(info, (void *)0x2000,         (void *)0x6000,         "system",     TYPE_Boundary);
+    call_callbacks(info, (void *)private24_low,  (void *)private24_high, "private low",TYPE_Boundary);
+    call_callbacks(info, (void *)private24_high, (void *)0x00FFFFFF,     "common low", TYPE_Boundary);
+    call_callbacks(info, (void *)0x01000000,     (void *)private31_low,  "common high",TYPE_Boundary);
+    call_callbacks(info, (void *)private31_low,  (void *)private31_high, "private high", TYPE_Boundary);
+  } else if (0 == asid_sel) {
     call_csvinfo(0x40, NULL, info, call_csvinfo_python_callback, "LPA"); /* LPA */
   } else {
     void *tcb = MEM4(0, 0x21C, PSATOLD); /* we should do all tasks */
@@ -548,21 +544,24 @@ int call_moduleinfo_python_callback(void *info_, struct modi_header *header,
 }
 
 PyDoc_STRVAR(get_module_info__doc__,
-	     "get_module_info(elements, asid, name, begin_address, end_address /)\n");
+	     "get_module_info(callback, argument, asid, name, begin_address, end_address /)\n");
 
 static PyObject *
 get_module_info(PyObject *module, PyObject *args)
 {
-  PyObject *elements;
-  PyObject *asid_obj;
+  PyObject *callback;
+  PyObject *argument;
+  PyObject *asid_selector;
   char *name;
   unsigned long begin_address;
   unsigned long end_address;
-  if (!PyArg_ParseTuple(args, "OOsLL:get_module_info", &elements, &asid_obj, &name, &begin_address, &end_address)) {
+  if (!PyArg_ParseTuple(args, "OOOsLL:get_csv_info", &callback, &argument, &asid_selector,
+			&name, &begin_address, &end_address)) {
     return NULL;
   }
-  struct python_info info_s = {.elements = elements, .asid_obj = asid_obj, .name_buffer = {0}};
-  if (0 != memcmp(name, "BB", 2)) {
+  struct python_info info_s = {.callback = callback, .argument = argument, .asid_selector = asid_selector, .name_buffer = {0}};
+
+  if (0 != memcmp(name, "BBG", 3)) { /* batchManagerZos; not sure how it was built, but we can't handle it */
     find_functions(call_moduleinfo_python_callback, &info_s, NULL,
 		   (void *)begin_address, (long)end_address - (long)begin_address);
   }
