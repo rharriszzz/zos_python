@@ -1,12 +1,8 @@
-from zos._bytearray import *
-from zos._system_call import *
+from zos_python import bytearray_set_address_size, bytearray_buffer_address
+from zos_python import zos_system_call, SYSTEM_CALL__CALL
+from zos_python import cp1047_oe
 
 import codecs
-cp1047_oe = 'cp1047_oe'
-try:
-    codecs.lookup(cp1047_oe)
-except LookupError:
-    cp1047_oe = 'cp1047'
 
 import ctypes, struct, os, sys
              

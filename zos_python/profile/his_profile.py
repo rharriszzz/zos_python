@@ -132,8 +132,8 @@ def get_info_for_process(pid, names):
     return entries
 
 def add_info_to_list(info_list, asid, begin_address, end_address, level, name):
-    info_list.append((asid, begin_address, 1, level, name)
-    info_list.append((asid, end_address,   0, level, name)
+    info_list.append((asid, begin_address, 1, level, name))
+    info_list.append((asid, end_address,   0, level, name))
 
 def get_csv_info_for_current_asid():
     global entries, current_asid

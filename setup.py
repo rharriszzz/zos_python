@@ -8,18 +8,20 @@ if is_pyz:
     os.environ["LDSHARED"] = "/bin/xlclang"
     os.environ["LINKCC"] = "/bin/xlclang"
 
-from setuptools import setup, Extension
+from setuptools import setup, Extension, find_packages
 
+def extensions_list(package, names):
+    directory = package.replace('.', '/')
+    return [Extension(package+'.'+name, [directory+'/'+name+'.c']) for name in names]
+
+ext_modules = extensions_list("zos_python.profile", ["_csv_info"])
 if is_pyz:
-    ext_names=["_bytearray", "_csv_info", "_fcntl", "_posix", "_system_call"]
-else:
-    ext_names=["_bytearray", "_csv_info"]
-ext_modules=[Extension("zos.%s" % name, ["zos/%s.c" % name]) for name in ext_names]
+    ext_modules += extensions_list("zos_python.builtins", ["_bytearray", "_fcntl", "_posix", "_system_call"])
 
 setup(
     name="zos_python",
     version="0.1",
-    namespace_packages=["zos"],
+    packages=find_packages(),
     ext_modules=ext_modules,
     author="Richard Harris",
     author_email="rharriszzz@gmail.com",
