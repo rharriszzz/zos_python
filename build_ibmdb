@@ -1,0 +1,79 @@
+#!/bin/sh
+# === build and install ibmdb ===
+
+export PYZ=$HOME/pyz
+export PATH=/bin
+export LIBPATH=/usr/lib
+export PYZ_DIR=usr/lpp/IBM/cyp/v3r8/pyz
+export PYZ_PREFIX=$PYZ/$PYZ_DIR
+export PATH=$PYZ_PREFIX/bin:$PATH
+export LIBPATH=$PYZ_PREFIX/lib:$LIBPATH
+export _BPXK_AUTOCVT=ON
+export CC=/bin/xlclang
+export CXX=/bin/xlclang++
+CFLAGS=`python3 -c 'import sysconfig; print(sysconfig.get_config_var("CFLAGS"))'  | sed -e "s/-W'c,DLL' //"`
+export CFLAGS
+export _C89_CCMODE=1
+export _CC_CCMODE=1
+export _CXX_CCMODE=1
+
+export IBM_DB_HOME='DSN.VC10'
+
+cd $HOME/git/python-ibmdb/IBM_DB/ibm_db
+if [[ -d build ]]; then
+    rm -rf build
+fi
+#the following lines should be pythonized and put into setup.py
+if [[ -d sdsnc.h ]]; then
+    rm -rf sdsnc.h
+fi
+mkdir sdsnc.h
+cp "//'DSN.VC10.SDSNC.H'" sdsnc.h
+echo "Please add sdsnc.h to your .gitignore file"
+for f in sdsnc.h/*; do
+    chtag -t -c 1047 $f
+    mv $f $f.h
+done
+cp "//'DSN.VC10.SDSNMACS(DSNAO64C)'" dsnao64c
+chtag -t -c 1047 dsnao64c
+cat dsnao64c \
+  | dd conv=block cbs=80 \
+  > libdsnao64c.x
+chtag -t -c 1047 libdsnao64c.x
+cp -X "//'DSN.VB10.SDSNLOD2(DSNAO64C)'" libdsnao64c.so
+echo 'Please add *dsnao64c* to your .gitignore file'
+
+#pip3 install --verbose .
+python3 setup.py build
+
+# === done building ibmdb ===
+
+exit 0
+
+diff -u  pyz/usr/lpp/IBM/cyp/v3r8/pyz/lib/python3.8/distutils/ccompiler.py.save pyz/usr/lpp/IBM/cyp/v3r8/pyz/lib/python3.8/distutils/ccompiler.py
+--- pyz/usr/lpp/IBM/cyp/v3r8/pyz/lib/python3.8/distutils/ccompiler.py.save	2020-09-10 10:59:48 -0400
++++ pyz/usr/lpp/IBM/cyp/v3r8/pyz/lib/python3.8/distutils/ccompiler.py	2020-09-10 11:00:53 -0400
+@@ -1109,13 +1109,18 @@
+ 
+     for lib in libraries:
+         (lib_dir, lib_name) = os.path.split(lib)
++        lib_file = None
+         if lib_dir:
+             lib_file = compiler.find_library_file([lib_dir], lib_name)
+-            if lib_file:
+-                lib_opts.append(lib_file)
+-            else:
+-                compiler.warn("no library file corresponding to "
+-                              "'%s' found (skipping)" % lib)
++        if lib_file is None:
++            lib_file = compiler.find_library_file(library_dirs, lib_name)
++        if lib_file is not None and sys.platform.startswith('zos') and lib_file.endswith(".so"):
++            lib_opts.append(lib_file[0:-3]+".x")
++        elif lib_file:
++            lib_opts.append(lib_file)
++        elif lib_dir:
++            compiler.warn("no library file corresponding to "
++                          "'%s' found (skipping)" % lib)
+         else:
+             lib_opts.append(compiler.library_option (lib))
+     return lib_opts

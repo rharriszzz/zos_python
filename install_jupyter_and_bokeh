@@ -11,16 +11,25 @@ fi
 
 # === edit these lines ===
 PYZ=$HOME/pyz
-PYZ_PAX=$HOME/HAMB380.runnable.pax.Z
+PYZ_DATE=2020-06-12
+PYZ_DATE=2020-07-24
+PYZ_PAX=$HOME/HAMB380-$PYZ_DATE.runnable.pax.Z
 
-ROCKET_PORTED_TOOLS_MAKE=/rsusr/ported/bin/make
+OLD_ROCKET_PORTED_TOOLS=/rsusr/ported.old
+ROCKET_PORTED_TOOLS=/rsusr/ported
+# we need to use the "make" that was compiled in ebcdic mode,
+# otherwise we get errors like this ".deps/jmemnobs.Plo:1: *** missing separator.  Stop."
+# to fix this we will have to insert lines like "@am__fastdepCC_TRUE@	$(AM_V_at)chtag -t -c 1047 $(DEPDIR)/$*.Plo"
+# in all the files "Makefile.in"
+export ROCKET_PORTED_TOOLS_MAKE=$OLD_ROCKET_PORTED_TOOLS/bin/make
 
 clean='yes'
 # === end of lines to edit ===
 
-touch install.log
-chtag -t -c 819 install.log
-exec > install.log 2>&1
+log=install-$PYZ_DATE.log
+touch $log
+chtag -t -c 819 $log
+exec > $log 2>&1
 set -x
 
 mkdir -p $PYZ
@@ -39,6 +48,7 @@ if [[ "$clean" == "yes" && -d usr ]]; then
 fi
 if [[ ! -d usr ]]; then
     pax -z -r -f $PYZ_PAX
+    find . > pyz-$PYZ_DATE.list
 fi
 
 export CC=/bin/xlclang
@@ -46,6 +56,10 @@ export CXX=/bin/xlclang++
 # -W'c,DLL' is not needed with xlclang (or with xlc -q64)
 CFLAGS=`python3 -c 'import sysconfig; print(sysconfig.get_config_var("CFLAGS"))'  | sed -e "s/-W'c,DLL' //"`
 export CFLAGS
+CFLAGSFORSHARED=`python3 -c 'import sysconfig; print(sysconfig.get_config_var("CFLAGSFORSHARED"))'`
+export CFLAGSFORSHARED
+LDSHARED=`python3 -c 'import sysconfig; print(sysconfig.get_config_var("LDSHARED"))'`
+export LDSHARED
 
 pip3 install --verbose certifi
 export SSL_CERT_FILE=$PYZ_PREFIX/lib/python3.8/site-packages/certifi/cacert.pem
@@ -83,15 +97,16 @@ else
         $f.save > $f
 fi
 
+rm *.gz
+. ./build_pkg-config
+. ./build_libzmq
+. ./build_zlib
+. ./build_jpeg
+export PIP_IGNORE_INSTALLED=0
 pip3 install --verbose wheel
-
-build_pkg-config
-build_libzmq
-build_pyzmq
-build_zlib
-build_jpeg
-pip3 install --verbose notebook
-
+export PREFIX=$PYZ_PREFIX
+. ./build_pyzmq
 # bokeh needs Pillow which needs zlib and jpeg
 
-pip3 install --verbose bokeh
+# notebook 6.1 requires argon2-cffi, which we can't build
+pip3 install notebook==6.0.3 bokeh cffi==1.14.0 numpy==1.18.2 cryptography==2.8

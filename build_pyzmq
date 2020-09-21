@@ -3,16 +3,20 @@
 if [[ -d pyzmq ]]; then
     rm -rf pyzmq
 fi
+
 pip3 download --verbose pyzmq
 python3 -m tarfile -e pyzmq-*.gz pyzmq
 chtag -R -t -c 819 pyzmq
+
+old_CC=$CC
+old_LDSHARED=$LDSHARED
 
 export CC=/bin/xlclang++
 export LDSHARED=/bin/xlclang++
 
 pip3 install --verbose ./pyzmq/pyzmq-* 
 
-export CC=/bin/xlc
-export LDSHARED=/bin/xlc
+export CC=$old_CC
+export LDSHARED=$old_LDSHARED
 
 # === done building pyzmq ===
